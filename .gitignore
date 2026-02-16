@@ -45,3 +45,9 @@ poetry.lock
 .vscode/
 .idea/
 *.swp
+
+# image files
+*.png
+*.jpg
+*.jpeg
+*.gif

@@ -1,5 +1,6 @@
 import sys
 import os
+import random
 import importlib.metadata
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -37,65 +38,85 @@ def create_chuck_close_effect(input_path: str, output_path: str, grid_size: int 
     
     print(f"Analyzing image ({width}x{height}) with grid size {grid_size}...")
     
-    # 2. Generate Density/Color Map
-    # Resize the image to the size of the grid using BOX resampling.
-    # This automatically calculates the average color of the pixels 
-    # that form each grid square.
-    color_map = original.resize((cols, rows), resample=Image.Resampling.BOX)
-    color_pixels = color_map.load()
-
-    # 3. Create Output Canvas
+    print(f"Analyzing image ({width}x{height}) with grid size {grid_size}...")
+    
+    # 2. Setup Output Canvas
     # We use RGBA for layering transparency, starting with a white background.
     output_img = Image.new("RGBA", (width, height), (255, 255, 255, 255))
     
-    # 4. Create the Master Fuzzy Mask
-    # The dot canvas is larger than the grid_size to allow the fuzziness to 
-    # overlap slightly with neighbors, creating a smooth diffused look.
-    # Tuned for more distinct circles:
-    dot_radius = int(grid_size * 0.45)      # Core size ~90% of grid width
-    canvas_size = int(grid_size * 1.5)      # Total area reduced to minimize wash-out
-    
-    # Create a white circle on black background for the mask
-    mask = Image.new("L", (canvas_size, canvas_size), 0)
-    draw = ImageDraw.Draw(mask)
-    
-    center = canvas_size // 2
-    draw.ellipse(
-        (center - dot_radius, center - dot_radius, center + dot_radius, center + dot_radius),
-        fill=255
-    )
-    
-    # Apply Gaussian Blur to create the diffuse/fuzzy effect
-    # blur_factor controls the fuzziness relative to grid size (default 0.15)
-    fuzzy_mask = mask.filter(ImageFilter.GaussianBlur(radius=grid_size * blur_factor))
-
-    # 5. Render the Grid
+    # 3. Render the Grid
     print(f"Rendering {cols * rows} grid cells...")
     
     for r in range(rows):
         for c in range(cols):
-            # Get average color of this grid square
-            color = color_pixels[c, r] # (R, G, B)
+            # Calculate grid cell coordinates
+            left = c * grid_size
+            top = r * grid_size
+            right = left + grid_size
+            bottom = top + grid_size
             
-            # Create a solid "brush tip" of the target color
-            brush = Image.new("RGBA", (canvas_size, canvas_size), color)
+            # Crop the cell from original
+            cell_img = original.crop((left, top, right, bottom))
             
-            # Apply the master fuzzy mask to the alpha channel of the brush
-            brush.putalpha(fuzzy_mask)
+            # Find Dominant Color
+            # Quantize to 1 color (this finds the centroid of the main cluster)
+            # This effectively gives the "dominant" visual color
+            dominant_img = cell_img.quantize(colors=1)
+            # Get palette (r, g, b) from the single color index 0
+            palette = dominant_img.getpalette()[:3]
+            color = tuple(palette)
             
-            # Calculate position to paste
-            # We center the large fuzzy dot over the grid square
+            # Create a localized canvas for this shape
+            # We make it slightly larger for anti-aliasing safety, but no rotation needed now
+            shape_size = int(grid_size * 1.5)
+            center = shape_size // 2
+            
+            # Transparent layer for the shape
+            shape_layer = Image.new("RGBA", (shape_size, shape_size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(shape_layer)
+            
+            # Randomize Shape Attributes: Rounded Square or Circle
+            shape_type = random.choice(["square", "circle"])
+            
+            # Dimensions - Tighter fit!
+            # Use 85-95% of the grid size
+            size_factor = random.uniform(0.85, 0.95)
+            w = h = int(grid_size * size_factor)
+            
+            # Bounding box centered
+            bbox = (center - w//2, center - h//2, center + w//2, center + h//2)
+            
+            # Drawing Logic - Filled Only
+            if shape_type == "square":
+                # Rounded corners - radius about 20% of size
+                radius = int(w * 0.2)
+                draw.rounded_rectangle(bbox, radius=radius, fill=color)
+            else: # circle
+                draw.ellipse(bbox, fill=color)
+            
+            # No Rotation needed
+            
+            # Apply Blur
+            # We blur the alpha channel of the shape itself to soften edges based on blur_factor
+            if blur_factor > 0:
+                 # Extract alpha
+                 r_ch, g_ch, b_ch, a_ch = shape_layer.split()
+                 # Blur alpha
+                 a_blurred = a_ch.filter(ImageFilter.GaussianBlur(radius=grid_size * blur_factor))
+                 # Merge back
+                 shape_layer = Image.merge("RGBA", (r_ch, g_ch, b_ch, a_blurred))
+
+            # Paste onto output
+            # Calculate global position
             grid_center_x = (c * grid_size) + (grid_size // 2)
             grid_center_y = (r * grid_size) + (grid_size // 2)
             
-            paste_x = grid_center_x - (canvas_size // 2)
-            paste_y = grid_center_y - (canvas_size // 2)
+            paste_x = grid_center_x - (shape_size // 2)
+            paste_y = grid_center_y - (shape_size // 2)
             
-            # Paste onto the output
-            # We use the brush itself as the mask to ensure proper alpha blending
-            output_img.paste(brush, (paste_x, paste_y), mask=brush)
+            output_img.paste(shape_layer, (paste_x, paste_y), mask=shape_layer)
 
-    # 6. Save Result
+    # 5. Save Result
     output_img.convert("RGB").save(output_path)
     print(f"Success! Saved processed image to: {output_path}")
 

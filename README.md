@@ -1,6 +1,6 @@
 # ChuckClose Image Converter
 
-A Python 3.13 tool that converts input images into an artistic grid of fuzzy, diffuse gray dots. It analyzes the darkness of grid areas in your image and renders dots of varying opacity to recreate the image with a soft, pointillist aesthetic, inspired by the style of Chuck Close.
+A Python 3.13 tool that converts input images into an artistic grid of **Rounded Squares** and **Circles**. It analyzes the color of grid areas in your image and renders filled shapes to recreate the image with a modern, geometric aesthetic.
 
 ## Prerequisites
 
@@ -39,9 +39,10 @@ poetry run chuckclose <input_image> [grid_size] [blur_factor]
 * **`input_image`**: (Required) Path to source image (jpg, png, etc).
 * **`grid_size`**: (Optional) Integer (Default: 30). Size of grid squares.
 * **`blur_factor`**: (Optional) Float (Default: 0.15). Controls softness of dots.
-  * *Lower (0.1)* = Sharp, distinct circles.
-  * *Higher (0.4)* = Very fuzzy, blended dots.
-  * **What it does:** It controls the "resolution" of the effect. The tool averages the color of every `grid_size x grid_size` block of pixels into a single dot.
+  * *Lower (0.1)* = Sharp, distinct shapes.
+  * *Higher (0.4)* = Fuzzy, blended edges.
+  * *Zero (0)* = No blur (sharpest edges).
+  * **What it does:** It controls the "resolution" of the effect. The tool averages the color of every `grid_size x grid_size` block of pixels into a single geometric shape.
   * *Lower number (e.g., 10-15)* = Smaller dots, higher detail, faithful to original.
   * *Higher number (e.g., 40-50)* = Larger dots, more abstract/artistic.
 
