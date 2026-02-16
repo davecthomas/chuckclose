@@ -30,7 +30,14 @@ Because the project is configured with Poetry scripts, you can run the tool dire
 ### Syntax
 
 ```bash
+# Standard Mode
 poetry run chuckclose <input_image> [grid_size] [blur_factor]
+
+# Gradient Mode
+poetry run chuckclose <input_image> gradient <start_size> <end_size> [blur_factor]
+
+# Supersample Mode (High Quality Gradient)
+poetry run chuckclose <input_image> supersample <start_size> <end_size> [blur_factor]
 
 ```
 
@@ -42,6 +49,13 @@ poetry run chuckclose <input_image> [grid_size] [blur_factor]
   * *Lower (0.1)* = Sharp, distinct shapes.
   * *Higher (0.4)* = Fuzzy, blended edges.
   * *Zero (0)* = No blur (sharpest edges).
+
+### Gradient & Supersample Mode Arguments
+* **`gradient`**: Standard variable grid mode.
+* **`supersample`**: High-quality variable grid mode (4x rendering + downsampling for smooth edges).
+* **`start_size`**: Grid size at the left edge of the image.
+* **`end_size`**: Grid size at the right edge of the image.
+  * *Note:* If size is 0, the original high-resolution image is shown.
 
 
 
@@ -76,6 +90,20 @@ poetry run chuckclose profile.jpg 50
 ```
 
 ---
+
+**5. Gradient (Variable Grid):**
+
+```bash
+poetry run chuckclose landscape.jpg gradient 0 80 0.1
+```
+*Transitions from full detail (left) to 80px blocks (right).*
+
+**6. Supersample (High Quality Gradient):**
+
+```bash
+poetry run chuckclose detail.jpg supersample 0 80 0.1
+```
+*Same as gradient, but smoother edges at small sizes.*
 
 ---
 
