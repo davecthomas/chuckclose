@@ -39,6 +39,13 @@ poetry run chuckclose <input_image> gradient <start_size> <end_size> [blur_facto
 # Supersample Mode (High Quality Gradient)
 poetry run chuckclose <input_image> supersample <start_size> <end_size> [blur_factor]
 
+# Center Gradient Modes (Symmetric)
+poetry run chuckclose <input_image> centervert <center_size> <edge_size> [blur_factor]
+poetry run chuckclose <input_image> centerhoriz <center_size> <edge_size> [blur_factor]
+
+# Radial Mode (Concentric)
+poetry run chuckclose <input_image> radial <center_size> <edge_size> [blur_factor]
+
 ```
 
 ### Arguments
@@ -50,11 +57,14 @@ poetry run chuckclose <input_image> supersample <start_size> <end_size> [blur_fa
   * *Higher (0.4)* = Fuzzy, blended edges.
   * *Zero (0)* = No blur (sharpest edges).
 
-### Gradient & Supersample Mode Arguments
-* **`gradient`**: Standard variable grid mode.
-* **`supersample`**: High-quality variable grid mode (4x rendering + downsampling for smooth edges).
-* **`start_size`**: Grid size at the left edge of the image.
-* **`end_size`**: Grid size at the right edge of the image.
+### Gradient & Center Mode Arguments
+* **`gradient`**: Standard variable grid (left-to-right).
+* **`supersample`**: High-quality variable grid (left-to-right).
+* **`centervert`**: Symmetrical gradient. Columns change size from center to left/right edges.
+* **`centerhoriz`**: Symmetrical gradient. Rows change size from center to top/bottom edges.
+* **`radial`**: Concentric gradient. Rings change size from center to corners.
+* **`start_size`**: Grid size at the **starting point** (Left for gradient, **Center** for center/radial modes).
+* **`end_size`**: Grid size at the **ending point** (Right for gradient, **Edges/Corners** for center/radial modes).
   * *Note:* If size is 0, the original high-resolution image is shown.
 
 
@@ -104,6 +114,27 @@ poetry run chuckclose landscape.jpg gradient 0 80 0.1
 poetry run chuckclose detail.jpg supersample 0 80 0.1
 ```
 *Same as gradient, but smoother edges at small sizes.*
+
+**7. Center Vertical (Symmetric Columns):**
+
+```bash
+poetry run chuckclose face.jpg centervert 10 60 0.1
+```
+*Small detailed 10px cells in the center column, growing to 60px at left/right edges.*
+
+**8. Center Horizontal (Symmetric Rows):**
+
+```bash
+poetry run chuckclose landscape.jpg centerhoriz 5 40 0.1
+```
+*Small 5px cells in the middle horizon, growing to 40px at top/bottom.*
+
+**9. Radial Mode (Concentric):**
+
+```bash
+poetry run chuckclose eye.jpg radial 10 50 0.2
+```
+*Small 10px cells in the center (pupil), expanding to 50px at the corners. The grid follows a circular pattern with radial spokes.*
 
 ---
 
