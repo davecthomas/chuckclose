@@ -281,7 +281,7 @@ def generate_radial_grid(width: int, height: int, start_size: int, end_size: int
 
 def create_chuck_close_effect(input_path: str, output_path: str, 
                               grid_size: int = 30, 
-                              blur_factor: float = 0.15, 
+                              blur_factor: float = 0.0, 
                               gradient: tuple[int, int] = None, 
                               supersample: bool = False, 
                               gradient_style: str = "linear_x") -> None:
@@ -370,7 +370,7 @@ def main():
              
              start_g = safe_parse(sys.argv[3], int, "start_size")
              end_g = safe_parse(sys.argv[4], int, "end_size")
-             blur_f = safe_parse(sys.argv[5], float, "blur_factor") if len(sys.argv) > 5 else 0.15
+             blur_f = safe_parse(sys.argv[5], float, "blur_factor") if len(sys.argv) > 5 else 0.0
              
              filename, ext = os.path.splitext(input_file)
              output_file = f"{filename}_chuckclose_{mode}_{start_g}-{end_g}_{blur_f}{ext}"
@@ -379,8 +379,13 @@ def main():
              
         else:
             # Standard Mode
+            if len(sys.argv) < 3:
+                print("Error: Missing grid size argument.")
+                print("Usage: chuckclose <input_image> <grid_size> [blur_factor]")
+                sys.exit(1)
+
             grid_s = safe_parse(sys.argv[2], int, "grid_size")
-            blur_f = safe_parse(sys.argv[3], float, "blur_factor") if len(sys.argv) > 3 else 0.15
+            blur_f = safe_parse(sys.argv[3], float, "blur_factor") if len(sys.argv) > 3 else 0.0
     
             filename, ext = os.path.splitext(input_file)
             output_file = f"{filename}_chuckclose_{grid_s}_{blur_f}{ext}"

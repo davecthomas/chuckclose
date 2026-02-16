@@ -52,10 +52,10 @@ poetry run chuckclose <input_image> radial <center_size> <edge_size> [blur_facto
 
 * **`input_image`**: (Required) Path to source image (jpg, png, etc).
 * **`grid_size`**: (Optional) Integer (Default: 30). Size of grid squares.
-* **`blur_factor`**: (Optional) Float (Default: 0.15). Controls softness of dots.
+* **`blur_factor`**: (Optional) Float (Default: 0.0). Controls softness of dots.
   * *Lower (0.1)* = Sharp, distinct shapes.
   * *Higher (0.4)* = Fuzzy, blended edges.
-  * *Zero (0)* = No blur (sharpest edges).
+  * *Zero (0.0)* = No blur (sharpest edges).
 
 ### Gradient & Center Mode Arguments
 * **`gradient`**: Standard variable grid (left-to-right).
