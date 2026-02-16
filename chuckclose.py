@@ -38,8 +38,6 @@ def create_chuck_close_effect(input_path: str, output_path: str, grid_size: int 
     
     print(f"Analyzing image ({width}x{height}) with grid size {grid_size}...")
     
-    print(f"Analyzing image ({width}x{height}) with grid size {grid_size}...")
-    
     # 2. Setup Output Canvas
     # We use RGBA for layering transparency, starting with a white background.
     output_img = Image.new("RGBA", (width, height), (255, 255, 255, 255))
@@ -66,6 +64,9 @@ def create_chuck_close_effect(input_path: str, output_path: str, grid_size: int 
             palette = dominant_img.getpalette()[:3]
             color = tuple(palette)
             
+            # --- Rendering Logic ---
+            # --- Rendering Logic ---
+            # GEOMETRIC SHAPE MODE (Default)
             # Create a localized canvas for this shape
             # We make it slightly larger for anti-aliasing safety, but no rotation needed now
             shape_size = int(grid_size * 1.5)
@@ -129,16 +130,16 @@ def main():
             
         input_file = sys.argv[1]
         
-        # Determine output filename automatically
-        # Generate default: input_name_chuckclose.ext
-        filename, ext = os.path.splitext(input_file)
-        output_file = f"{filename}_chuckclose{ext}"
-
         # Grid size is sys.argv[2]
         grid_s = int(sys.argv[2]) if len(sys.argv) > 2 else 30
         
         # Blur factor is sys.argv[3]
         blur_f = float(sys.argv[3]) if len(sys.argv) > 3 else 0.15
+
+        # Determine output filename automatically
+        # Generate default: input_name_chuckclose_grid_blur.ext
+        filename, ext = os.path.splitext(input_file)
+        output_file = f"{filename}_chuckclose_{grid_s}_{blur_f}{ext}"
         
         create_chuck_close_effect(input_file, output_file, grid_s, blur_f)
     else:

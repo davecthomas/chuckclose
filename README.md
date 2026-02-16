@@ -42,9 +42,6 @@ poetry run chuckclose <input_image> [grid_size] [blur_factor]
   * *Lower (0.1)* = Sharp, distinct shapes.
   * *Higher (0.4)* = Fuzzy, blended edges.
   * *Zero (0)* = No blur (sharpest edges).
-  * **What it does:** It controls the "resolution" of the effect. The tool averages the color of every `grid_size x grid_size` block of pixels into a single geometric shape.
-  * *Lower number (e.g., 10-15)* = Smaller dots, higher detail, faithful to original.
-  * *Higher number (e.g., 40-50)* = Larger dots, more abstract/artistic.
 
 
 
@@ -77,6 +74,8 @@ poetry run chuckclose dog.jpg 8
 poetry run chuckclose profile.jpg 50
 
 ```
+
+---
 
 ---
 
