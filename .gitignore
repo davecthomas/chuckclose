@@ -47,7 +47,7 @@ poetry.lock
 *.swp
 
 # image files
-*.png
-*.jpg
-*.jpeg
-*.gif
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif

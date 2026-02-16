@@ -372,8 +372,12 @@ def main():
              end_g = safe_parse(sys.argv[4], int, "end_size")
              blur_f = safe_parse(sys.argv[5], float, "blur_factor") if len(sys.argv) > 5 else 0.0
              
-             filename, ext = os.path.splitext(input_file)
-             output_file = f"{filename}_chuckclose_{mode}_{start_g}-{end_g}_{blur_f}{ext}"
+             filename, ext = os.path.splitext(os.path.basename(input_file))
+             output_dir = "output"
+             if not os.path.exists(output_dir):
+                 os.makedirs(output_dir)
+             
+             output_file = os.path.join(output_dir, f"{filename}_chuckclose_{mode}_{start_g}-{end_g}_{blur_f}{ext}")
              
              create_chuck_close_effect(input_file, output_file, blur_factor=blur_f, gradient=(start_g, end_g), supersample=is_supersample, gradient_style=gradient_style)
              
@@ -387,8 +391,12 @@ def main():
             grid_s = safe_parse(sys.argv[2], int, "grid_size")
             blur_f = safe_parse(sys.argv[3], float, "blur_factor") if len(sys.argv) > 3 else 0.0
     
-            filename, ext = os.path.splitext(input_file)
-            output_file = f"{filename}_chuckclose_{grid_s}_{blur_f}{ext}"
+            filename, ext = os.path.splitext(os.path.basename(input_file))
+            output_dir = "output"
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            output_file = os.path.join(output_dir, f"{filename}_chuckclose_{grid_s}_{blur_f}{ext}")
             
             create_chuck_close_effect(input_file, output_file, grid_size=grid_s, blur_factor=blur_f)
     else:

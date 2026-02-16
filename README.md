@@ -165,3 +165,37 @@ Poetry tries to use the Python version specified in `pyproject.toml`. Ensure you
 poetry env use /path/to/python3.13
 
 ```
+
+## Gallery
+
+### Source Images
+
+| Test 1 | Test |
+| :---: | :---: |
+| ![Source 1](output/test1.png) | ![Source 2](output/test.png) |
+
+### Generated Samples
+
+#### Standard
+**Grid Size 50, No Blur**
+![Standard 50](output/test1_chuckclose_50_0.0.png)
+
+#### Center Gradients
+**Center Horizontal (4px to 90px)**
+![CenterHoriz 4-90](output/test1_chuckclose_centerhoriz_4-90_0.0.png)
+
+**Center Vertical (4px to 90px)**
+![CenterVert 4-90](output/test1_chuckclose_centervert_4-90_0.0.png)
+
+**Center Horizontal (Test Image)**
+![CenterHoriz Test](output/test_chuckclose_centerhoriz_4-90_0.0.png)
+
+#### Radial Gradients
+**Radial (6px to 130px)**
+![Radial 6-130](output/test1_chuckclose_radial_6-130_0.0.png)
+
+**Radial (30px to 50px)**
+![Radial 30-50](output/test1_chuckclose_radial_30-50_0.0.png)
+
+**Radial Sample (10px to 110px)**
+![Radial Sample](output/test_chuckclose_radial_10-110_0.0.png)
