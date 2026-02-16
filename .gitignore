@@ -46,8 +46,8 @@ poetry.lock
 .idea/
 *.swp
 
-# image files
-# *.png
-# *.jpg
-# *.jpeg
-# *.gif
+# output files
+# output/*.png
+# output/*.jpg
+# output/*.jpeg
+# output/*.gif

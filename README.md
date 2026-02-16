@@ -2,6 +2,8 @@
 
 A Python 3.13 tool that converts input images into an artistic grid of **Rounded Squares** and **Circles**. It analyzes the color of grid areas in your image and renders filled shapes to recreate the image with a modern, geometric aesthetic.
 
+![ChuckClose](output/test_chuckclose_50_0.0.png)
+
 ## Prerequisites
 
 * **Python 3.13** (Required)
@@ -172,13 +174,13 @@ poetry env use /path/to/python3.13
 
 | Test 1 | Test |
 | :---: | :---: |
-| ![Source 1](output/test1.png) | ![Source 2](output/test.png) |
+| ![Source 1](test1.png) | ![Source 2](test.png) |
 
 ### Generated Samples
 
 #### Standard
 **Grid Size 50, No Blur**
-![Standard 50](output/test1_chuckclose_50_0.0.png)
+![Standard 50](test1_chuckclose_50_0.0.png)
 
 #### Center Gradients
 **Center Horizontal (4px to 90px)**

@@ -383,13 +383,14 @@ def main():
              
         else:
             # Standard Mode
-            if len(sys.argv) < 3:
-                print("Error: Missing grid size argument.")
-                print("Usage: chuckclose <input_image> <grid_size> [blur_factor]")
-                sys.exit(1)
+            grid_s = 30 # Default
+            blur_f = 0.0 # Default
 
-            grid_s = safe_parse(sys.argv[2], int, "grid_size")
-            blur_f = safe_parse(sys.argv[3], float, "blur_factor") if len(sys.argv) > 3 else 0.0
+            if len(sys.argv) > 2:
+                grid_s = safe_parse(sys.argv[2], int, "grid_size")
+            
+            if len(sys.argv) > 3:
+                blur_f = safe_parse(sys.argv[3], float, "blur_factor")
     
             filename, ext = os.path.splitext(os.path.basename(input_file))
             output_dir = "output"
