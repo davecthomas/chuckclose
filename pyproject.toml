@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "chuckclose"
+version = "0.1.0"
+description = "A tool to convert images into a grid of fuzzy, diffuse gray dots."
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [{include = "chuckclose.py"}]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+Pillow = "^10.0.0"
+
+[tool.poetry.scripts]
+chuckclose = "chuckclose:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
