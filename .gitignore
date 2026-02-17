@@ -47,7 +47,7 @@ poetry.lock
 *.swp
 
 # output files
-# output/*.png
-# output/*.jpg
-# output/*.jpeg
-# output/*.gif
+output/*.png
+output/*.jpg
+output/*.jpeg
+output/*.gif

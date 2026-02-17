@@ -1,5 +1,7 @@
 # ChuckClose Image Converter
 
+Because [Chuck Close](https://en.wikipedia.org/wiki/Chuck_Close) is one of my all-time favorite artists, I created this tool to create images from photos in a style similar to his work.
+
 A Python 3.13 tool that converts input images into an artistic grid of **Rounded Squares** and **Circles**. It analyzes the color of grid areas in your image and renders filled shapes to recreate the image with a modern, geometric aesthetic.
 
 ![ChuckClose](output/test_chuckclose_50_0.0.png)
@@ -16,8 +18,8 @@ This project uses [Poetry](https://python-poetry.org/) to manage dependencies an
 1. **Clone or Download** this project folder.
 2. **Open your terminal** in the project folder.
 3. **Install dependencies**:
-   ```bash
-   poetry install
+```bash
+poetry install
 
 ```
 
