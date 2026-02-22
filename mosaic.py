@@ -1,409 +1,520 @@
-import sys
-import os
-import random
-import math
 import importlib.metadata
+import logging
+import math
+import os
+import secrets
+import sys
+from collections.abc import Generator
+from dataclasses import dataclass
+
 from PIL import Image, ImageDraw, ImageFilter
-from typing import Generator, Tuple, Optional
+
+# Structured logging without timestamps
+logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
+logger_app = logging.getLogger(__name__)
+
+try:
+    import cv2
+    import numpy as np
+    from tqdm import tqdm
+    bool_has_video_support = True
+except ImportError:
+    bool_has_video_support = False
+
 
 def get_version() -> str:
     """Retrieve version from pyproject.toml via Poetry."""
     try:
-        return importlib.metadata.version("chuckclose")
-    except importlib.metadata.PackageNotFoundError:
-        return "unknown"
+        str_version_result = importlib.metadata.version("mosaic")
+        return str_version_result
+    except importlib.metadata.PackageNotFoundError as exc_error:
+        logger_app.warning("Package 'mosaic' not found. Using 'unknown' version. Context: %s", exc_error)
+        str_unknown_version = "unknown"
+        return str_unknown_version
 
-def safe_parse(value: str, type_func: type, arg_name: str):
-    """Safely parse a string value to a specific type, exiting on failure."""
+
+def safe_parse_int(str_value: str, str_arg_name: str) -> int:
+    """Safely parse a string value to integer, exiting on failure."""
     try:
-        return type_func(value)
-    except ValueError:
-        print(f"Error: Invalid format for {arg_name}: '{value}'")
-        print(f"       Expected a valid {type_func.__name__}.")
+        int_parsed_val = int(str_value)
+        return int_parsed_val
+    except ValueError as exc_error:
+        logger_app.error("Invalid format for %s: '%s'. Expected int. Context: %s", str_arg_name, str_value, exc_error)
         sys.exit(1)
 
-# --- Core Utilities ---
 
-def get_dominant_color(image: Image.Image, region_box: Tuple[int, int, int, int]) -> Tuple[int, int, int]:
-    """Extracts the dominant color from a region of the image."""
+def safe_parse_float(str_value: str, str_arg_name: str) -> float:
+    """Safely parse a string value to float, exiting on failure."""
     try:
-        # Validate region
-        left, top, right, bottom = region_box
+        float_parsed_val = float(str_value)
+        return float_parsed_val
+    except ValueError as exc_error:
+        logger_app.error("Invalid format for %s: '%s'. Expected float. Context: %s", str_arg_name, str_value, exc_error)
+        sys.exit(1)
+
+
+def lerp_float(float_a: float, float_b: float, float_progress: float) -> float:
+    """Linearly interpolate two float values."""
+    float_result = float_a + (float_b - float_a) * float_progress
+    return float_result
+
+
+def lerp_int(int_a: int, int_b: int, float_progress: float) -> int:
+    """Linearly interpolate two int values."""
+    float_res = int_a + (int_b - int_a) * float_progress
+    int_result = int(round(float_res))
+    return int_result
+
+
+@dataclass
+class MosaicSettings:
+    """Configuration class for Mosaic generation."""
+    int_grid_size: int = 30
+    float_blur_factor: float = 0.0
+    int_spatial_interpolation_start: int | None = None
+    int_spatial_interpolation_end: int | None = None
+    bool_supersample: bool = False
+    str_gradient_style: str = "linear_x"
+
+    def interpolate(self, obj_other: 'MosaicSettings', float_progress: float) -> 'MosaicSettings':
+        """
+        Temporally interpolates between this settings object (start of video sequence) 
+        and another (end of video sequence) based on float_progress [0.0, 1.0].
         
-        # Clamp to image bounds to avoid sampling "void" (black) areas outside the image
-        left = max(0, left)
-        top = max(0, top)
-        right = min(image.width, right)
-        bottom = min(image.height, bottom)
-
-        if right <= left or bottom <= top:
-            return (0, 0, 0) # Invalid/Empty region, return black
-            
-        cell_img = image.crop((left, top, right, bottom))
-        if cell_img.width == 0 or cell_img.height == 0:
-            return (0, 0, 0)
-
-        # Quantize to 1 color to find the dominant one
-        dominant_img = cell_img.quantize(colors=1)
-        palette = dominant_img.getpalette()
-        if palette:
-            return tuple(palette[:3])
-        return (0, 0, 0)
-    except Exception:
-        return (128, 128, 128) # Fallback gray
-
-def render_shape(color: Tuple[int, int, int], 
-                 width: int, 
-                 height: int, 
-                 shape_type: str = "random", 
-                 supersample: bool = False, 
-                 blur_radius: float = 0.0) -> Image.Image:
-    """
-    Renders a single shape (circle or rounded square) with given parameters.
-    Returns an RGBA Image object.
-    """
-    if width < 1: width = 1
-    if height < 1: height = 1
-
-    # Resolve shape type
-    if shape_type == "random":
-        shape_type = random.choice(["square", "circle"])
-
-    # Determine drawing dimensions
-    if supersample:
-        scale = 4
-        draw_w = width * scale
-        draw_h = height * scale
-    else:
-        scale = 1
-        draw_w = width
-        draw_h = height
-    
-    if draw_w < 1: draw_w = 1
-    if draw_h < 1: draw_h = 1
-
-    # Create canvas
-    shape_layer = Image.new("RGBA", (draw_w, draw_h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(shape_layer)
-    
-    # Draw logic
-    if shape_type == "square":
-        radius = int(draw_w * 0.2)
-        d.rounded_rectangle((0, 0, draw_w, draw_h), radius=radius, fill=color)
-    else:
-        d.ellipse((0, 0, draw_w, draw_h), fill=color)
-
-    # Post-processing (Resize / Blur)
-    if supersample:
-        shape_layer = shape_layer.resize((width, height), Image.Resampling.LANCZOS)
-    
-    # Apply Blur to Alpha Channel
-    if blur_radius > 0:
-        r, g, b, a = shape_layer.split()
-        # Blur radius relative to the *output* size, not supersampled size
-        a_blurred = a.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-        shape_layer = Image.merge("RGBA", (r, g, b, a_blurred))
+        This cross-frame temporal interpolation tweens the spatial start and spatial end 
+        settings independently.
+        """
+        int_interp_grid_size = lerp_int(self.int_grid_size, obj_other.int_grid_size, float_progress)
+        float_interp_blur_factor = lerp_float(self.float_blur_factor, obj_other.float_blur_factor, float_progress)
         
-    return shape_layer
-
-
-# --- Grid Generators ---
-# Each generator yields tuples: (sample_box, paste_center_xy, shape_size_wh, blur_radius)
-
-def generate_standard_grid(width: int, height: int, grid_size: int, blur_factor: float) -> Generator:
-    """Standard uniform grid generator."""
-    cols = width // grid_size
-    rows = height // grid_size
-    
-    # Pre-calculate common shape attributes
-    shape_w = int(grid_size * 0.9) # Slightly smaller than grid
-    blur_r = max(1, grid_size * blur_factor) if blur_factor > 0 else 0
-    
-    for r in range(rows):
-        for c in range(cols):
-            left = c * grid_size
-            top = r * grid_size
-            right = left + grid_size
-            bottom = top + grid_size
-            
-            # Center of the grid cell
-            center_x = left + (grid_size // 2)
-            center_y = top + (grid_size // 2)
-            
-            yield (left, top, right, bottom), (center_x, center_y), (shape_w, shape_w), blur_r
-
-def generate_linear_gradient(width: int, height: int, start_size: int, end_size: int, 
-                           blur_factor: float, axis: str = "x", gradient_style: str = "linear") -> Generator:
-    """
-    Generates rectangular cells with varying sizes along an axis.
-    Supports: linear-x, center-x, center-y.
-    """
-    # X-Axis Logic (Columns)
-    if axis == "x":
-        current_x = 0
-        center_x = width / 2
+        int_interp_spatial_start: int | None = self.int_spatial_interpolation_start
+        int_interp_spatial_end: int | None = self.int_spatial_interpolation_end
         
-        while current_x < width:
-            # Calculate t
-            if gradient_style == "center_x":
-                t = abs(current_x - center_x) / (width / 2)
-            else: # linear
-                t = current_x / width
-            t = min(max(t, 0.0), 1.0)
+        # Temporal interpolation of the spatial gradient dimensions
+        if self.int_spatial_interpolation_start is not None and obj_other.int_spatial_interpolation_start is not None:
+            int_interp_spatial_start = lerp_int(self.int_spatial_interpolation_start, obj_other.int_spatial_interpolation_start, float_progress)
             
-            current_size = start_size + (end_size - start_size) * t
-            grid_s = int(round(current_size))
-            if grid_s < 1: grid_s = 1
+        if self.int_spatial_interpolation_end is not None and obj_other.int_spatial_interpolation_end is not None:
+            int_interp_spatial_end = lerp_int(self.int_spatial_interpolation_end, obj_other.int_spatial_interpolation_end, float_progress)
+        
+        bool_interp_supersample = self.bool_supersample if float_progress < 0.5 else obj_other.bool_supersample
+        str_interp_gradient_style = self.str_gradient_style if float_progress < 0.5 else obj_other.str_gradient_style
+
+        obj_new_settings = MosaicSettings(
+            int_grid_size=int_interp_grid_size,
+            float_blur_factor=float_interp_blur_factor,
+            int_spatial_interpolation_start=int_interp_spatial_start,
+            int_spatial_interpolation_end=int_interp_spatial_end,
+            bool_supersample=bool_interp_supersample,
+            str_gradient_style=str_interp_gradient_style
+        )
+        return obj_new_settings
+
+
+class Mosaic:
+    """Main class for generating Chuck Close style mosaics."""
+    
+    def __init__(self, str_input_image_path: str) -> None:
+        self.str_input_path = str_input_image_path
+        try:
+            self.image_original = Image.open(str_input_image_path).convert("RGB")
+        except Exception as exc_error:
+            logger_app.error("Failed to open image file: %s. Context: %s", str_input_image_path, exc_error)
+            raise RuntimeError(f"Error opening image: {exc_error}") from exc_error
             
-            blur_r = max(1, grid_s * blur_factor) if blur_factor > 0 else 0
-            
-            # Iterate Y (Rows) for this column
-            for y in range(0, height, grid_s):
-                left = current_x
-                top = y
-                right = left + grid_s
-                bottom = top + grid_s
+        self.int_width, self.int_height = self.image_original.size
+        self._video_writer = None
+        
+    @staticmethod
+    def get_dominant_color(image_input: Image.Image, tuple_region_box: tuple[int, int, int, int]) -> tuple[int, int, int]:
+        """Extracts the dominant color from a given box within the image."""
+        try:
+            int_left, int_top, int_right, int_bottom = tuple_region_box
+            int_left = max(0, int_left)
+            int_top = max(0, int_top)
+            int_right = min(image_input.width, int_right)
+            int_bottom = min(image_input.height, int_bottom)
+
+            if int_right <= int_left or int_bottom <= int_top:
+                tuple_black_color = (0, 0, 0)
+                return tuple_black_color
                 
-                center_x_pos = left + (grid_s // 2)
-                center_y_pos = top + (grid_s // 2)
-                
-                # Shape size randomized slightly per cell
-                size_factor = random.uniform(0.85, 0.95)
-                w = h = int(grid_s * size_factor)
-                
-                yield (left, top, right, bottom), (center_x_pos, center_y_pos), (w, h), blur_r
-            
-            current_x += grid_s
+            image_cell = image_input.crop((int_left, int_top, int_right, int_bottom))
+            if image_cell.width == 0 or image_cell.height == 0:
+                tuple_black_color = (0, 0, 0)
+                return tuple_black_color
 
-    # Y-Axis Logic (Rows)
-    elif axis == "y":
-        current_y = 0
-        center_y = height / 2
+            image_dominant = image_cell.quantize(colors=1)
+            list_palette = image_dominant.getpalette()
+            if list_palette:
+                tuple_dom_color = (list_palette[0], list_palette[1], list_palette[2])
+                return tuple_dom_color
+                
+            tuple_black_color = (0, 0, 0)
+            return tuple_black_color
+        except Exception as exc_error:
+            logger_app.warning("Failed to extract dominant color, defaulting to gray. Context: %s", exc_error)
+            tuple_gray_color = (128, 128, 128)
+            return tuple_gray_color
+
+    @staticmethod
+    def render_shape(tuple_color: tuple[int, int, int], 
+                     int_width: int, 
+                     int_height: int, 
+                     str_shape_type: str = "random", 
+                     bool_supersample: bool = False, 
+                     float_blur_radius: float = 0.0) -> Image.Image:
+        """Renders an individual shape (circle or square) based on given inputs."""
+        int_width = max(1, int_width)
+        int_height = max(1, int_height)
+
+        if str_shape_type == "random":
+            list_shape_options = ["square", "circle"]
+            str_shape_type = secrets.choice(list_shape_options)
+
+        int_scale = 4 if bool_supersample else 1
+        int_draw_width = max(1, int_width * int_scale)
+        int_draw_height = max(1, int_height * int_scale)
+
+        tuple_transparent = (0, 0, 0, 0)
+        image_shape_layer = Image.new("RGBA", (int_draw_width, int_draw_height), tuple_transparent)
+        image_draw = ImageDraw.Draw(image_shape_layer)
         
-        while current_y < height:
-            # Calculate t
-            if gradient_style == "center_y":
-                 t = abs(current_y - center_y) / (height / 2)
+        tuple_draw_box = (0, 0, int_draw_width, int_draw_height)
+        if str_shape_type == "square":
+            int_radius = int(int_draw_width * 0.2)
+            image_draw.rounded_rectangle(tuple_draw_box, radius=int_radius, fill=tuple_color)
+        else:
+            image_draw.ellipse(tuple_draw_box, fill=tuple_color)
+
+        if bool_supersample:
+            tuple_final_size = (int_width, int_height)
+            image_shape_layer = image_shape_layer.resize(tuple_final_size, Image.Resampling.LANCZOS)
+        
+        if float_blur_radius > 0:
+            tuple_channels = image_shape_layer.split()
+            channel_alpha = tuple_channels[3]
+            channel_alpha_blurred = channel_alpha.filter(ImageFilter.GaussianBlur(radius=float_blur_radius))
+            tuple_merged_channels = (tuple_channels[0], tuple_channels[1], tuple_channels[2], channel_alpha_blurred)
+            image_shape_layer = Image.merge("RGBA", tuple_merged_channels)
+            
+        return image_shape_layer
+
+    @staticmethod
+    def generate_standard_grid(int_width: int, int_height: int, int_grid_size: int, float_blur_factor: float) -> Generator[tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int], float], None, None]:
+        """Generator that yields coordinate properties for a standard uniform grid."""
+        int_cols = int_width // int_grid_size
+        int_rows = int_height // int_grid_size
+        int_shape_width = int(int_grid_size * 0.9)
+        float_blur_radius = max(1.0, float(int_grid_size) * float_blur_factor) if float_blur_factor > 0 else 0.0
+        
+        for row_idx in range(int_rows):
+            for col_idx in range(int_cols):
+                int_left = col_idx * int_grid_size
+                int_top = row_idx * int_grid_size
+                int_right = int_left + int_grid_size
+                int_bottom = int_top + int_grid_size
+                int_center_x = int_left + (int_grid_size // 2)
+                int_center_y = int_top + (int_grid_size // 2)
+                
+                tuple_box = (int_left, int_top, int_right, int_bottom)
+                tuple_center = (int_center_x, int_center_y)
+                tuple_dims = (int_shape_width, int_shape_width)
+                
+                yield tuple_box, tuple_center, tuple_dims, float_blur_radius
+
+    @staticmethod
+    def generate_linear_gradient(int_width: int, int_height: int, int_start_size: int, int_end_size: int, 
+                               float_blur_factor: float, str_axis: str = "x", str_gradient_style: str = "linear") -> Generator[tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int], float], None, None]:
+        """Generator yielding box attributes for size-varying rectangular cells along an axis."""
+        bool_is_x = (str_axis == "x")
+        int_primary_dim = int_width if bool_is_x else int_height
+        int_secondary_dim = int_height if bool_is_x else int_width
+        float_center_pos = int_primary_dim / 2.0
+        int_current_pos = 0
+
+        while int_current_pos < int_primary_dim:
+            if str_gradient_style in ("center_x", "center_y"):
+                float_progress = abs(int_current_pos - float_center_pos) / (int_primary_dim / 2.0)
             else:
-                 t = current_y / height
-            t = min(max(t, 0.0), 1.0)
+                float_progress = int_current_pos / float(int_primary_dim)
+                
+            float_progress = min(max(float_progress, 0.0), 1.0)
             
-            current_size = start_size + (end_size - start_size) * t
-            grid_s = int(round(current_size))
-            if grid_s < 1: grid_s = 1
-
-            blur_r = max(1, grid_s * blur_factor) if blur_factor > 0 else 0
-
-            # Iterate X (Columns) for this row
-            for x in range(0, width, grid_s):
-                left = x
-                top = current_y
-                right = left + grid_s
-                bottom = top + grid_s
+            float_calc_size = int_start_size + (int_end_size - int_start_size) * float_progress
+            int_grid_size = max(1, int(round(float_calc_size)))
+            float_blur_radius = max(1.0, float(int_grid_size) * float_blur_factor) if float_blur_factor > 0 else 0.0
+            
+            for int_sec_pos in range(0, int_secondary_dim, int_grid_size):
+                int_left = int_current_pos if bool_is_x else int_sec_pos
+                int_top = int_sec_pos if bool_is_x else int_current_pos
+                int_right = int_left + int_grid_size
+                int_bottom = int_top + int_grid_size
                 
-                center_x_pos = left + (grid_s // 2)
-                center_y_pos = top + (grid_s // 2)
+                int_center_x_pos = int_left + (int_grid_size // 2)
+                int_center_y_pos = int_top + (int_grid_size // 2)
                 
-                size_factor = random.uniform(0.85, 0.95)
-                w = h = int(grid_s * size_factor)
+                float_size_factor = secrets.SystemRandom().uniform(0.85, 0.95)
+                int_size_dim = int(int_grid_size * float_size_factor)
+                
+                tuple_box = (int_left, int_top, int_right, int_bottom)
+                tuple_center = (int_center_x_pos, int_center_y_pos)
+                tuple_dims = (int_size_dim, int_size_dim)
+                
+                yield tuple_box, tuple_center, tuple_dims, float_blur_radius
+            
+            int_current_pos += int_grid_size
 
-                yield (left, top, right, bottom), (center_x_pos, center_y_pos), (w, h), blur_r
-
-            current_y += grid_s
-
-def generate_radial_grid(width: int, height: int, start_size: int, end_size: int, blur_factor: float) -> Generator:
-    """
-    Generates concentric ring cells.
-    Uses dynamic spoke calculation to keep cells roughly square.
-    """
-    cx, cy = width / 2, height / 2
-    max_radius = math.sqrt((width/2)**2 + (height/2)**2) * 1.05
-    
-    current_r = 0.0
-    while current_r < max_radius:
-        # Calculate grid size at this radius
-        t = current_r / max_radius
-        current_radial_width = start_size + (end_size - start_size) * t
-        if current_radial_width < 2: current_radial_width = 2
+    @staticmethod
+    def generate_radial_grid(int_width: int, int_height: int, int_start_size: int, int_end_size: int, float_blur_factor: float) -> Generator[tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int], float], None, None]:
+        """Generator yielding cells arranged in concentric circles."""
+        float_cx, float_cy = int_width / 2.0, int_height / 2.0
+        float_max_radius = math.sqrt((int_width/2.0)**2 + (int_height/2.0)**2) * 1.05
+        float_current_r = 0.0
         
-        blur_r = max(1, current_radial_width * blur_factor) if blur_factor > 0 else 0
+        while float_current_r < float_max_radius:
+            float_progress = float_current_r / float_max_radius
+            float_calc_width = int_start_size + (int_end_size - int_start_size) * float_progress
+            float_radial_width = max(2.0, float_calc_width)
+            float_blur_radius = max(1.0, float_radial_width * float_blur_factor) if float_blur_factor > 0 else 0.0
+            
+            if float_current_r < 1:
+                int_num_spokes = 1
+            else:
+                float_circumference = 2.0 * math.pi * float_current_r
+                int_num_spokes = max(4, int(float_circumference / float_radial_width))
+            
+            float_d_theta = 360.0 / int_num_spokes
+            
+            for index_spoke in range(int_num_spokes):
+                float_theta_start = index_spoke * float_d_theta
+                float_theta_end = (index_spoke + 1) * float_d_theta
+                float_rc = float_current_r + (float_radial_width / 2.0)
+                float_theta_c_rad = math.radians((float_theta_start + float_theta_end) / 2.0)
+                
+                float_cent_x = float_cx + float_rc * math.cos(float_theta_c_rad)
+                float_cent_y = float_cy + float_rc * math.sin(float_theta_c_rad)
+                
+                int_sample_half_size = max(1, int(float_radial_width / 2.0))
+                int_left = int(float_cent_x - int_sample_half_size)
+                int_top = int(float_cent_y - int_sample_half_size)
+                int_right = int(float_cent_x + int_sample_half_size)
+                int_bottom = int(float_cent_y + int_sample_half_size)
+                
+                if int_right < 0 or int_bottom < 0 or int_left > int_width or int_top > int_height:
+                    continue
 
-        # Dynamic Spokes Calculation
-        if current_r < 1:
-            num_spokes = 1
+                float_arc_len = float_rc * math.radians(float_d_theta)
+                float_max_dim = min(float_radial_width, float_arc_len)
+                
+                float_size_factor = secrets.SystemRandom().uniform(0.85, 0.95)
+                int_size_dim = int(float_max_dim * float_size_factor)
+                
+                tuple_box = (int_left, int_top, int_right, int_bottom)
+                tuple_center = (int(float_cent_x), int(float_cent_y))
+                tuple_dims = (int_size_dim, int_size_dim)
+                
+                yield tuple_box, tuple_center, tuple_dims, float_blur_radius
+                
+            float_current_r += float_radial_width
+
+    def render_buffer(self, obj_settings: MosaicSettings) -> Image.Image:
+        """Renders the mosaic based on settings and returns the RGB buffer as a Pillow Image."""
+        tuple_white_color = (255, 255, 255, 255)
+        tuple_size = (self.int_width, self.int_height)
+        image_output = Image.new("RGBA", tuple_size, tuple_white_color)
+        
+        if obj_settings.int_spatial_interpolation_start is not None and obj_settings.int_spatial_interpolation_end is not None:
+            int_start_size = obj_settings.int_spatial_interpolation_start
+            int_end_size = obj_settings.int_spatial_interpolation_end
+            if obj_settings.str_gradient_style == "radial":
+                 obj_generator = self.generate_radial_grid(self.int_width, self.int_height, int_start_size, int_end_size, obj_settings.float_blur_factor)
+            elif obj_settings.str_gradient_style == "center_y":
+                 obj_generator = self.generate_linear_gradient(self.int_width, self.int_height, int_start_size, int_end_size, obj_settings.float_blur_factor, str_axis="y", str_gradient_style="center_y")
+            elif obj_settings.str_gradient_style == "center_x":
+                 obj_generator = self.generate_linear_gradient(self.int_width, self.int_height, int_start_size, int_end_size, obj_settings.float_blur_factor, str_axis="x", str_gradient_style="center_x")
+            else:
+                 obj_generator = self.generate_linear_gradient(self.int_width, self.int_height, int_start_size, int_end_size, obj_settings.float_blur_factor, str_axis="x", str_gradient_style="linear")
         else:
-            circumference = 2 * math.pi * current_r
-            num_spokes = int(circumference / current_radial_width)
+            obj_generator = self.generate_standard_grid(self.int_width, self.int_height, obj_settings.int_grid_size, obj_settings.float_blur_factor)
+            
+        for tuple_sample_box, tuple_paste_center, tuple_shape_dims, float_blur_radius in obj_generator:
+            tuple_color = self.get_dominant_color(self.image_original, tuple_sample_box)
+            image_shape = self.render_shape(tuple_color, tuple_shape_dims[0], tuple_shape_dims[1], bool_supersample=obj_settings.bool_supersample, float_blur_radius=float_blur_radius)
+            
+            int_paste_x = int(tuple_paste_center[0] - image_shape.width // 2)
+            int_paste_y = int(tuple_paste_center[1] - image_shape.height // 2)
+            tuple_paste_loc = (int_paste_x, int_paste_y)
+            
+            image_output.paste(image_shape, tuple_paste_loc, mask=image_shape)
+            
+        image_rgb_converted = image_output.convert("RGB")
+        return image_rgb_converted
         
-        if num_spokes < 4: num_spokes = 4
-        
-        d_theta = 360 / num_spokes
-        
-        for i in range(num_spokes):
-            theta_start = i * d_theta
-            theta_end = (i + 1) * d_theta
-            
-            r_in = current_r
-            r_out = current_r + current_radial_width
-            
-            # Calculate Centroid (Polar to Cartesian)
-            r_c = (r_in + r_out) / 2
-            theta_c = (theta_start + theta_end) / 2
-            theta_c_rad = math.radians(theta_c)
-            
-            cent_x = cx + r_c * math.cos(theta_c_rad)
-            cent_y = cy + r_c * math.sin(theta_c_rad)
-            
-            # Sampling Box (Approximate region for color)
-            sample_half_size = max(1, int(current_radial_width / 2))
-            s_left = int(cent_x - sample_half_size)
-            s_top = int(cent_y - sample_half_size)
-            s_right = int(cent_x + sample_half_size)
-            s_bottom = int(cent_y + sample_half_size)
-            
-            # Check bounds to skip off-screen cells early
-            if s_right < 0 or s_bottom < 0 or s_left > width or s_top > height:
-                continue
+    def save_static_image(self, image_buffer: Image.Image, str_path: str, str_format: str = "png") -> None:
+        """Saves a static image buffer to the specified path."""
+        try:
+            image_buffer.save(str_path, format=str_format)
+            logger_app.info("Saved static image to %s", str_path)
+        except Exception as exc_error:
+            logger_app.error("Failed to save static image. Context: %s", exc_error)
+            raise RuntimeError(f"Error saving image: {exc_error}") from exc_error
 
-            # Check drawing size
-            arc_len = r_c * math.radians(d_theta)
-            max_d = min(current_radial_width, arc_len)
-            
-            size_factor = random.uniform(0.85, 0.95)
-            w = h = int(max_d * size_factor)
-            
-            yield (s_left, s_top, s_right, s_bottom), (cent_x, cent_y), (w, h), blur_r
-            
-        current_r += current_radial_width
+    def save_video_fragment(self, image_buffer: Image.Image, str_path: str, int_num_frames: int = 1, int_fps: int = 30) -> None:
+        """Appends a buffer to the video file. Initializes VideoWriter on the first call."""
+        if not bool_has_video_support:
+            logger_app.error("Video fragment save called but opencv-python, numpy, or tqdm is missing.")
+            raise RuntimeError("opencv-python, numpy, and tqdm are required for video generation.")
+
+        if self._video_writer is None:
+            obj_fourcc = cv2.VideoWriter_fourcc(*'mp4v') # type: ignore
+            tuple_size = (image_buffer.width, image_buffer.height)
+            self._video_writer = cv2.VideoWriter(str_path, obj_fourcc, int_fps, tuple_size) # type: ignore
+            # logger_app.info("Initialized video writer for %s", str_path) # Removed to avoid cluttering tqdm
+
+        array_open_cv = np.array(image_buffer)
+        array_bgr = array_open_cv[:, :, ::-1].copy()
+
+        for _ in range(int_num_frames):
+            self._video_writer.write(array_bgr)
+
+    def generate_video(self, obj_start_settings: MosaicSettings, obj_end_settings: MosaicSettings, int_duration: int, str_output_path: str, int_fps: int = 30) -> None:
+        """Incrementally calls render_buffer and save_video_fragment, interpolating settings over the duration."""
+        if int_duration <= 1:
+            image_buffer = self.render_buffer(obj_start_settings)
+            self.save_video_fragment(image_buffer, str_output_path, int_num_frames=1, int_fps=int_fps)
+        else:
+            if bool_has_video_support:
+                str_filename_short = os.path.basename(str_output_path)
+                if len(str_filename_short) > 30:
+                    str_filename_short = str_filename_short[:27] + "..."
+                obj_range = tqdm(range(int_duration), desc=f"Rendering {str_filename_short}", unit="frame")
+            else:
+                obj_range = range(int_duration) # Will crash cleanly in save_video_fragment immediately
+                
+            for int_step in obj_range:
+                float_progress = int_step / float(int_duration - 1)
+                obj_current_settings = obj_start_settings.interpolate(obj_end_settings, float_progress)
+                image_buffer = self.render_buffer(obj_current_settings)
+                self.save_video_fragment(image_buffer, str_output_path, int_num_frames=1, int_fps=int_fps)
+                
+        if self._video_writer is not None:
+            self._video_writer.release()
+            self._video_writer = None
+            logger_app.info("\nVideo generation complete. Saved to: %s", str_output_path)
 
 
-# --- Orchestrator ---
-
-def create_chuck_close_effect(input_path: str, output_path: str, 
-                              grid_size: int = 30, 
-                              blur_factor: float = 0.0, 
-                              gradient: tuple[int, int] = None, 
-                              supersample: bool = False, 
-                              gradient_style: str = "linear_x") -> None:
-    """
-    Main orchestrator function.
-    Reads image, selects generator, renders cells, saves output.
-    """
-    try:
-        original = Image.open(input_path).convert("RGB")
-    except Exception as e:
-        print(f"Error opening image: {e}")
-        return
-
-    width, height = original.size
-    print(f"Analyzing image ({width}x{height})...")
-    
-    # Setup Canvas
-    output_img = Image.new("RGBA", (width, height), (255, 255, 255, 255))
-    
-    # Select Generator
-    if gradient:
-        start_size, end_size = gradient
-        if gradient_style == "radial":
-             generator = generate_radial_grid(width, height, start_size, end_size, blur_factor)
-        elif gradient_style == "center_y":
-             generator = generate_linear_gradient(width, height, start_size, end_size, blur_factor, axis="y", gradient_style="center_y")
-        elif gradient_style == "center_x":
-             generator = generate_linear_gradient(width, height, start_size, end_size, blur_factor, axis="x", gradient_style="center_x")
-        else: # linear_x default
-             generator = generate_linear_gradient(width, height, start_size, end_size, blur_factor, axis="x", gradient_style="linear")
-    else:
-        generator = generate_standard_grid(width, height, grid_size, blur_factor)
-        
-    print("Rendering...")
-    
-    count = 0
-    for sample_box, paste_center, shape_dims, blur_r in generator:
-        # 1. Color
-        color = get_dominant_color(original, sample_box)
-        
-        # 2. Render Shape
-        shape_w, shape_h = shape_dims
-        shape_img = render_shape(color, shape_w, shape_h, supersample=supersample, blur_radius=blur_r)
-        
-        # 3. Paste
-        cx, cy = paste_center
-        paste_x = int(cx - shape_img.width // 2)
-        paste_y = int(cy - shape_img.height // 2)
-        
-        output_img.paste(shape_img, (paste_x, paste_y), mask=shape_img)
-        count += 1
-        
-    output_img.convert("RGB").save(output_path)
-    print(f"Success! Rendered {count} cells. Saved to: {output_path}")
-
-def main():
+def main() -> None:
     """Entry point for the console script."""
-    if len(sys.argv) > 1:
-        if sys.argv[1] in ["--version", "-v"]:
-            print(f"chuckclose v{get_version()} (Python {sys.version.split()[0]})")
-            sys.exit(0)
-            
-        input_file = sys.argv[1]
-        
-        # Check for Special Modes
-        special_modes = ["gradient", "supersample", "centervert", "centerhoriz", "radial"]
-        
-        if len(sys.argv) > 2 and sys.argv[2] in special_modes:
-             mode = sys.argv[2]
-             
-             # Configuration
-             # All special modes use supersampling by default in current design
-             # or at least the user requested high quality for gradients/radial
-             is_supersample = True 
-             
-             gradient_style = "linear_x"
-             if mode == "centervert": gradient_style = "center_x"
-             if mode == "centerhoriz": gradient_style = "center_y"
-             if mode == "radial": gradient_style = "radial"
-             if mode == "gradient": gradient_style = "linear_x" # Explicit
-             
-             if len(sys.argv) < 5:
-                 print(f"Error: {mode} mode requires start and end sizes.")
-                 print(f"Usage: chuckclose <input> {mode} <start> <end> [blur]")
-                 sys.exit(1)
-             
-             start_g = safe_parse(sys.argv[3], int, "start_size")
-             end_g = safe_parse(sys.argv[4], int, "end_size")
-             blur_f = safe_parse(sys.argv[5], float, "blur_factor") if len(sys.argv) > 5 else 0.0
-             
-             filename, ext = os.path.splitext(os.path.basename(input_file))
-             output_dir = "output"
-             if not os.path.exists(output_dir):
-                 os.makedirs(output_dir)
-             
-             output_file = os.path.join(output_dir, f"{filename}_chuckclose_{mode}_{start_g}-{end_g}_{blur_f}{ext}")
-             
-             create_chuck_close_effect(input_file, output_file, blur_factor=blur_f, gradient=(start_g, end_g), supersample=is_supersample, gradient_style=gradient_style)
-             
-        else:
-            # Standard Mode
-            grid_s = 30 # Default
-            blur_f = 0.0 # Default
-
-            if len(sys.argv) > 2:
-                grid_s = safe_parse(sys.argv[2], int, "grid_size")
-            
-            if len(sys.argv) > 3:
-                blur_f = safe_parse(sys.argv[3], float, "blur_factor")
+    import argparse
+    obj_parser = argparse.ArgumentParser(description="Mosaic Image and Video Generator")
     
-            filename, ext = os.path.splitext(os.path.basename(input_file))
-            output_dir = "output"
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
+    obj_parser.add_argument("input_image", type=str, help="Path to source image")
+    obj_parser.add_argument("--version", "-v", action="store_true", help="Print version and exit")
+    
+    # Global Settings
+    obj_parser.add_argument("--mode", type=str, default="standard", choices=["standard", "gradient", "supersample", "centervert", "centerhoriz", "radial"], help="Rendering mode for the mosaic.")
+    obj_parser.add_argument("--grid_size", type=int, default=30, help="Standard grid size (used if mode=standard).")
+    obj_parser.add_argument("--blur_factor", type=float, default=0.0, help="Blur factor to soften mosaic edges.")
+    
+    # Spatial Interpolation Settings (For Gradients/Radials)
+    obj_parser.add_argument("--spatial_start_size", type=int, help="Starting cell size for spatial interpolation.")
+    obj_parser.add_argument("--spatial_end_size", type=int, help="Ending cell size for spatial interpolation.")
+    
+    # Temporal Interpolation Settings (For Video Mode)
+    obj_parser.add_argument("--video", type=int, nargs="?", const=60, help="Generate an mp4 video with specified frames (default 60).")
+    obj_parser.add_argument("--grid_size_temporal_end", type=int, help="Grid size at the temporal end of the video generated.")
+    obj_parser.add_argument("--spatial_start_size_temporal_end", type=int, help="Spatial start size at the temporal end of the video generated.")
+    obj_parser.add_argument("--spatial_end_size_temporal_end", type=int, help="Spatial end size at the temporal end of the video generated.")
 
-            output_file = os.path.join(output_dir, f"{filename}_chuckclose_{grid_s}_{blur_f}{ext}")
+    obj_args = obj_parser.parse_args()
+
+    if obj_args.version:
+        str_version_text = f"mosaic v{get_version()} (Python {sys.version.split()[0]})"
+        logger_app.info(str_version_text)
+        sys.exit(0)
+
+    try:
+        obj_mosaic = Mosaic(obj_args.input_image)
+    except Exception as exc_error:
+        logger_app.error("Initialization error. Context: %s", exc_error)
+        sys.exit(1)
+
+    str_filename, str_ext = os.path.splitext(os.path.basename(obj_args.input_image))
+    str_output_dir = "output"
+    if not os.path.exists(str_output_dir):
+        os.makedirs(str_output_dir)
+
+    # Establish Base Settings (Temporal Start)
+    obj_base_settings = MosaicSettings(
+        int_grid_size=obj_args.grid_size,
+        float_blur_factor=obj_args.blur_factor,
+        bool_supersample=obj_args.mode in ["gradient", "supersample", "centervert", "centerhoriz", "radial"]
+    )
+
+    if obj_args.mode != "standard":
+        if obj_args.spatial_start_size is None or obj_args.spatial_end_size is None:
+            logger_app.error("%s mode requires --spatial_start_size and --spatial_end_size.", obj_args.mode)
+            sys.exit(1)
+        
+        obj_base_settings.int_spatial_interpolation_start = obj_args.spatial_start_size
+        obj_base_settings.int_spatial_interpolation_end = obj_args.spatial_end_size
+        
+        if obj_args.mode == "centervert": 
+            obj_base_settings.str_gradient_style = "center_x"
+        elif obj_args.mode == "centerhoriz": 
+            obj_base_settings.str_gradient_style = "center_y"
+        elif obj_args.mode == "radial": 
+            obj_base_settings.str_gradient_style = "radial"
+        elif obj_args.mode == "gradient" or obj_args.mode == "supersample": 
+            obj_base_settings.str_gradient_style = "linear_x"
+
+    # Execution Mode
+    if obj_args.video is not None:
+        # User requested video output
+        int_duration = obj_args.video
+        
+        # Build base name with temporal grid bounds
+        int_temp_end_grid = obj_args.grid_size_temporal_end if obj_args.grid_size_temporal_end is not None else obj_base_settings.int_grid_size
+        str_temporal_tag = f"tempG_{obj_args.grid_size}-{int_temp_end_grid}"
+        
+        if obj_args.mode != "standard":
+            int_temp_start = obj_args.spatial_start_size_temporal_end if obj_args.spatial_start_size_temporal_end is not None else obj_base_settings.int_spatial_interpolation_start
+            int_temp_end = obj_args.spatial_end_size_temporal_end if obj_args.spatial_end_size_temporal_end is not None else obj_base_settings.int_spatial_interpolation_end
+            str_temporal_tag += f"_tempS_{obj_args.spatial_start_size}-{obj_args.spatial_end_size}_to_{int_temp_start}-{int_temp_end}"
             
-            create_chuck_close_effect(input_file, output_file, grid_size=grid_s, blur_factor=blur_f)
+        str_output_file = os.path.join(str_output_dir, f"{str_filename}_mosaic_{obj_args.mode}_{int_duration}f_{str_temporal_tag}_B{obj_args.blur_factor}.mp4")
+        
+        # Build Temporal End Settings
+        obj_end_settings = MosaicSettings(
+            int_grid_size=int_temp_end_grid,
+            float_blur_factor=obj_base_settings.float_blur_factor,
+            bool_supersample=obj_base_settings.bool_supersample,
+            str_gradient_style=obj_base_settings.str_gradient_style
+        )
+        
+        if obj_args.mode != "standard":
+            obj_end_settings.int_spatial_interpolation_start = int_temp_start
+            obj_end_settings.int_spatial_interpolation_end = int_temp_end
+
+        logger_app.info("Rendering video (%d frames)... starting static/spatial rendering to target settings...", int_duration)
+        try:
+            obj_mosaic.generate_video(obj_base_settings, obj_end_settings, int_duration, str_output_file)
+        except Exception as exc_error:
+            logger_app.error("Video rendering failed. Context: %s", exc_error)
+            sys.exit(1)
+
     else:
-        print("Usage: chuckclose <input_image> [grid_size] [blur_factor]")
-        print("       chuckclose <input_image> [mode] <start> <end> [blur]")
-        print("Modes: gradient, centervert, centerhoriz, radial")
+        # Static Image Rendering
+        str_output_file = os.path.join(str_output_dir, f"{str_filename}_mosaic_static{str_ext}")
+        logger_app.info("Rendering static image...")
+        try:
+            image_rendered_buffer = obj_mosaic.render_buffer(obj_base_settings)
+            str_fmt = str_ext.replace(".", "") if str_ext else "png"
+            obj_mosaic.save_static_image(image_rendered_buffer, str_output_file, str_format=str_fmt)
+        except Exception as exc_error:
+            logger_app.error("Rendering failed. Context: %s", exc_error)
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -1,17 +1,20 @@
 [tool.poetry]
-name = "chuckclose"
-version = "1.0.0"
-description = "A tool to convert images into a grid of fuzzy, diffuse gray dots."
+name = "mosaic"
+version = "1.1.0"
+description = "A tool to convert images into a mosaic of fuzzy, diffuse gray shapes with video generation support."
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
-packages = [{include = "chuckclose.py"}]
+packages = [{include = "mosaic.py"}]
 
 [tool.poetry.dependencies]
 python = "^3.13"
 Pillow = "^10.0.0"
+opencv-python = "^4.13.0.92"
+numpy = "^2.4.2"
+tqdm = "^4.66.0"
 
 [tool.poetry.scripts]
-chuckclose = "chuckclose:main"
+mosaic = "mosaic:main"
 
 [build-system]
 requires = ["poetry-core"]
