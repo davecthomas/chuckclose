@@ -1,0 +1,5 @@
+GOOGLE_GEMINI_API_KEY=[get this at https://aistudio.google.com/api-keys]
+GOOGLE_AUTH_METHOD=api_key
+
+# Defines the default model engine to initialize for completions
+COMPLETIONS_ENGINE=google-gemini
