@@ -126,6 +126,33 @@ class Mosaic:
         self._video_writer = None
         
     @staticmethod
+    def get_shape_size_factor_bounds(int_grid_size: int) -> tuple[float, float]:
+        """Return adaptive shape size factor bounds for a given grid size."""
+        if int_grid_size >= 8:
+            tuple_bounds = (0.90, 0.90)
+            return tuple_bounds
+        if int_grid_size >= 4:
+            tuple_bounds = (0.93, 0.95)
+            return tuple_bounds
+
+        tuple_bounds = (0.96, 0.98)
+        return tuple_bounds
+
+    @staticmethod
+    def get_adaptive_shape_dimension(int_grid_size: int, int_reference_dimension: int) -> int:
+        """Compute a shape dimension using adaptive fill ratios by grid size band."""
+        tuple_factor_bounds = Mosaic.get_shape_size_factor_bounds(int_grid_size)
+        float_min_factor, float_max_factor = tuple_factor_bounds
+        if float_min_factor == float_max_factor:
+            float_shape_factor = float_min_factor
+        else:
+            float_shape_factor = secrets.SystemRandom().uniform(float_min_factor, float_max_factor)
+
+        float_dimension = float(int_reference_dimension) * float_shape_factor
+        int_dimension = max(1, int(round(float_dimension)))
+        return int_dimension
+
+    @staticmethod
     def get_dominant_color(image_input: Image.Image, tuple_region_box: tuple[int, int, int, int]) -> tuple[int, int, int]:
         """Extracts the dominant color from a given box within the image."""
         try:
@@ -182,7 +209,13 @@ class Mosaic:
         
         tuple_draw_box = (0, 0, int_draw_width, int_draw_height)
         if str_shape_type == "square":
-            int_radius = int(int_draw_width * 0.2)
+            int_min_dim = min(int_width, int_height)
+            if int_min_dim < 3:
+                float_corner_ratio = 0.05
+            else:
+                float_corner_ratio = 0.2
+
+            int_radius = int(round(int(min(int_draw_width, int_draw_height)) * float_corner_ratio))
             image_draw.rounded_rectangle(tuple_draw_box, radius=int_radius, fill=tuple_color)
         else:
             image_draw.ellipse(tuple_draw_box, fill=tuple_color)
@@ -205,8 +238,11 @@ class Mosaic:
         """Generator that yields coordinate properties for a standard uniform grid."""
         int_cols = int_width // int_grid_size
         int_rows = int_height // int_grid_size
-        int_shape_width = int(int_grid_size * 0.9)
-        float_blur_radius = max(1.0, float(int_grid_size) * float_blur_factor) if float_blur_factor > 0 else 0.0
+        int_shape_width = Mosaic.get_adaptive_shape_dimension(int_grid_size, int_grid_size)
+        if int_grid_size < 3:
+            float_blur_radius = 0.0
+        else:
+            float_blur_radius = max(1.0, float(int_grid_size) * float_blur_factor) if float_blur_factor > 0 else 0.0
         
         for row_idx in range(int_rows):
             for col_idx in range(int_cols):
@@ -243,7 +279,10 @@ class Mosaic:
             
             float_calc_size = int_start_size + (int_end_size - int_start_size) * float_progress
             int_grid_size = max(1, int(round(float_calc_size)))
-            float_blur_radius = max(1.0, float(int_grid_size) * float_blur_factor) if float_blur_factor > 0 else 0.0
+            if int_grid_size < 3:
+                float_blur_radius = 0.0
+            else:
+                float_blur_radius = max(1.0, float(int_grid_size) * float_blur_factor) if float_blur_factor > 0 else 0.0
             
             for int_sec_pos in range(0, int_secondary_dim, int_grid_size):
                 int_left = int_current_pos if bool_is_x else int_sec_pos
@@ -254,8 +293,7 @@ class Mosaic:
                 int_center_x_pos = int_left + (int_grid_size // 2)
                 int_center_y_pos = int_top + (int_grid_size // 2)
                 
-                float_size_factor = secrets.SystemRandom().uniform(0.85, 0.95)
-                int_size_dim = int(int_grid_size * float_size_factor)
+                int_size_dim = Mosaic.get_adaptive_shape_dimension(int_grid_size, int_grid_size)
                 
                 tuple_box = (int_left, int_top, int_right, int_bottom)
                 tuple_center = (int_center_x_pos, int_center_y_pos)
@@ -276,7 +314,11 @@ class Mosaic:
             float_progress = float_current_r / float_max_radius
             float_calc_width = int_start_size + (int_end_size - int_start_size) * float_progress
             float_radial_width = max(2.0, float_calc_width)
-            float_blur_radius = max(1.0, float_radial_width * float_blur_factor) if float_blur_factor > 0 else 0.0
+            int_grid_size = max(1, int(round(float_radial_width)))
+            if int_grid_size < 3:
+                float_blur_radius = 0.0
+            else:
+                float_blur_radius = max(1.0, float_radial_width * float_blur_factor) if float_blur_factor > 0 else 0.0
             
             if float_current_r < 1:
                 int_num_spokes = 1
@@ -307,8 +349,7 @@ class Mosaic:
                 float_arc_len = float_rc * math.radians(float_d_theta)
                 float_max_dim = min(float_radial_width, float_arc_len)
                 
-                float_size_factor = secrets.SystemRandom().uniform(0.85, 0.95)
-                int_size_dim = int(float_max_dim * float_size_factor)
+                int_size_dim = Mosaic.get_adaptive_shape_dimension(int_grid_size, max(1, int(round(float_max_dim))))
                 
                 tuple_box = (int_left, int_top, int_right, int_bottom)
                 tuple_center = (int(float_cent_x), int(float_cent_y))
