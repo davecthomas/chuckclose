@@ -4,7 +4,7 @@
 
 - Project: `mosaic`
 - Repository root: `/Users/davidthomas/code/davecthomas/chuckclose`
-- Current version: `1.1.0`
+- Current version: `1.2.0`
 - Primary implementation files:
 - `src/mosaic/mosaic_generator.py`
 - `src/mosaic/ai_api.py`
@@ -487,7 +487,165 @@ When output behavior changes:
 - Risk: output drift complicates visual regression testing
 - Mitigation: optional deterministic mode toggle for test builds
 
-## 22. Future Enhancements
+## 22. Storyboard Mosaic Support
+
+### 22.1 Objective
+
+`VideoStoryboard` converts one storyboard narrative into a frame-by-frame image prompt sequence, generates images through `AiApi`, and prepares those image buffers for direct video assembly.
+
+The storyboard pipeline produces a direct video timeline from generated image buffers.
+
+### 22.2 Feature Scope
+
+- Inputs:
+  - Storyboard prompt: `str_storyboard_prompt`
+  - Frame count: `int_num_frames`
+- Outputs:
+  - Frame prompt sequence: `list[str]` (`list_str_frame_prompts`)
+  - Generated image buffer sequence: `list[bytes]` (`list_bytes_frame_image_buffers`)
+  - Optional video artifact assembled directly from generated buffers
+- Exclusion:
+  - Mosaic transformation of storyboard buffers before video assembly
+
+### 22.3 Class Design
+
+- Module: `src/mosaic/video_storyboard.py`
+- Class: `VideoStoryboard`
+- Constructor contract:
+  - `__init__(self, str_storyboard_prompt: str, int_num_frames: int, obj_ai_api: AiApi | None = None) -> None`
+  - Validates non-empty storyboard prompt and `int_num_frames >= 1`
+  - Stores prompt, frame count, provider client, prompt cache, and image-buffer cache
+- Internal state:
+  - `self.str_storyboard_prompt: str`
+  - `self.int_num_frames: int`
+  - `self.obj_ai_api: AiApi`
+  - `self.list_str_frame_prompts: list[str]`
+  - `self.list_bytes_frame_image_buffers: list[bytes]`
+- Primary methods:
+  - `build_frame_prompts(self) -> list[str]`
+  - `generate_storyboard(self) -> list[bytes]`
+  - `clear_storyboard_cache(self) -> None`
+- Behavioral invariant:
+  - `generate_storyboard` calls `AiApi.create_image` once per frame prompt and stores returned buffers in temporal order.
+
+### 22.4 Prompt Decomposition Workflow
+
+`build_frame_prompts` follows two stages:
+
+1. Story beat extraction
+  - Calls `AiApi.send_prompt` with a constrained instruction to convert the storyboard narrative into ordered beats.
+  - Requires structured output with `frame_index` and `frame_prompt`.
+2. Frame prompt normalization
+  - Expands or compresses beats to exactly `int_num_frames`.
+  - Preserves continuity anchors across all frames:
+    - Subject identity
+    - Camera framing and lens context
+    - Lighting and visual style
+  - Encodes only the per-frame motion delta (for example eye direction, blink state, or pose transition).
+
+Prompt quality requirements:
+
+- Each frame prompt is self-contained and directly usable for image generation.
+- Prompts avoid unresolved references such as "same as previous frame" without restating core identity and style anchors.
+- Style descriptors stay stable to reduce frame-to-frame drift.
+
+Fallback behavior:
+
+- If decomposition fails, deterministic fallback prompts are derived from the storyboard prompt plus frame-index motion directives.
+
+### 22.5 Image Generation Workflow
+
+`generate_storyboard` executes:
+
+1. Ensures frame prompts exist by invoking `build_frame_prompts` when needed.
+2. Iterates prompts in ascending frame order.
+3. Calls `AiApi.create_image(str_prompt)` for each frame prompt.
+4. Appends each returned `bytes` payload to `self.list_bytes_frame_image_buffers`.
+5. Returns the ordered image buffer list.
+
+Failure strategy:
+
+- Log prompt index, high-level context, and exception class.
+- Do not log secrets or full sensitive prompt payloads.
+- Classify retryable versus non-retryable provider errors before deciding retry/abort behavior.
+- Use bounded backoff retries for retryable failures.
+
+### 22.6 Video Assembly Integration
+
+Image-buffer video assembly runs without source-image mosaic generation.
+
+`Mosaic` video-buffer method contract:
+
+- `generate_video_from_image_buffers(self, list_bytes_frame_image_buffers: list[bytes], str_output_path: str, int_fps: int = 30) -> None`
+
+Expected behavior:
+
+- Decode each bytes payload into a Pillow image.
+- Normalize frame size to the first valid frame's dimensions.
+- Append frames through existing `save_video_fragment` flow.
+- Release writer handle on completion or failure (`finally` semantics).
+
+Orchestration sequence:
+
+1. `VideoStoryboard.build_frame_prompts()`
+2. `VideoStoryboard.generate_storyboard()`
+3. `Mosaic.generate_video_from_image_buffers(...)`
+
+### 22.7 Interface Contracts
+
+Prompt list contract:
+
+- List length equals `int_num_frames`.
+- Ordering is temporal frame order (`0..int_num_frames-1`).
+
+Image buffer list contract:
+
+- List length equals generated frame count.
+- Each entry is a raw image payload accepted by the Pillow decode path.
+- Ordering is stable and matches prompt order.
+
+### 22.8 Observability Requirements
+
+Structured logs should include:
+
+- storyboard job start with frame count
+- prompt decomposition completion with count
+- per-frame image generation progress (index/total)
+- final video output path and frame count
+
+Do not include:
+
+- API keys
+- full prompt text in production logs
+
+### 22.9 Test Strategy for Storyboard Support
+
+Unit tests:
+
+- prompt count matches requested frame count
+- fallback prompt generation path
+- cache reset behavior
+
+Integration tests (mocked AI client):
+
+- `send_prompt` decomposition success path
+- retry behavior for retryable errors
+- failure propagation for non-retryable errors
+- generated image buffer ordering
+
+Video assembly tests:
+
+- video writer receives expected number of frames
+- mixed-size frames are normalized consistently
+
+### 22.10 Acceptance Criteria
+
+- A single storyboard prompt can produce exactly `N` frame prompts.
+- Exactly `N` image buffers are generated and retained in order.
+- Video assembly from these buffers succeeds with expected frame count.
+- Failures are logged with actionable context and clear retry behavior.
+
+## 23. Future Enhancements
 
 - Refactor provider integrations into explicit ABC + factory registry pattern for strict provider abstraction.
 - Add bounded exponential backoff and retry classification for third-party API calls.
@@ -495,7 +653,7 @@ When output behavior changes:
 - Introduce performance profiles (fast, balanced, quality).
 - Add structured benchmark script for frame time and memory reporting.
 
-## 23. Acceptance Criteria for This Specification
+## 24. Acceptance Criteria for This Specification
 
 - Captures complete current architecture and execution flow.
 - Defines contracts for inputs, outputs, and major module boundaries.

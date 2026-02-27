@@ -95,6 +95,28 @@ duration_frames = 60
 mosaic.generate_video(start_settings, end_settings, duration_frames, "output.mp4")
 ```
 
+### Storyboard Video Generation (API Only)
+You can generate a frame-by-frame storyboard with AI image prompts and stitch those image buffers into a video timeline.
+```python
+from mosaic import Mosaic, VideoStoryboard
+
+storyboard = VideoStoryboard(
+    str_storyboard_prompt=(
+        "An extreme closeup of a fair-skinned woman's right eye. "
+        "She looks straight ahead, then left, blinks, and looks ahead again."
+    ),
+    int_num_frames=24,
+)
+
+list_bytes_frames = storyboard.generate_storyboard()
+mosaic = Mosaic("test1.png")
+mosaic.generate_video_from_image_buffers(
+    list_bytes_frame_image_buffers=list_bytes_frames,
+    str_output_path="output/storyboard_sequence.mp4",
+    int_fps=24,
+)
+```
+
 
 ### Examples
 

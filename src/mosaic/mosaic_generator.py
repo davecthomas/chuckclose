@@ -1,4 +1,5 @@
 import importlib.metadata
+import io
 import logging
 import math
 import os
@@ -421,28 +422,71 @@ class Mosaic:
 
     def generate_video(self, obj_start_settings: MosaicSettings, obj_end_settings: MosaicSettings, int_duration: int, str_output_path: str, int_fps: int = 30) -> None:
         """Incrementally calls render_buffer and save_video_fragment, interpolating settings over the duration."""
-        if int_duration <= 1:
-            image_buffer = self.render_buffer(obj_start_settings)
-            self.save_video_fragment(image_buffer, str_output_path, int_num_frames=1, int_fps=int_fps)
-        else:
+        try:
+            if int_duration <= 1:
+                image_buffer = self.render_buffer(obj_start_settings)
+                self.save_video_fragment(image_buffer, str_output_path, int_num_frames=1, int_fps=int_fps)
+            else:
+                if bool_has_video_support:
+                    str_filename_short = os.path.basename(str_output_path)
+                    if len(str_filename_short) > 30:
+                        str_filename_short = str_filename_short[:27] + "..."
+                    obj_range = tqdm(range(int_duration), desc=f"Rendering {str_filename_short}", unit="frame")
+                else:
+                    obj_range = range(int_duration) # Will crash cleanly in save_video_fragment immediately
+                    
+                for int_step in obj_range:
+                    float_progress = int_step / float(int_duration - 1)
+                    obj_current_settings = obj_start_settings.interpolate(obj_end_settings, float_progress)
+                    image_buffer = self.render_buffer(obj_current_settings)
+                    self.save_video_fragment(image_buffer, str_output_path, int_num_frames=1, int_fps=int_fps)
+        finally:
+            if self._video_writer is not None:
+                self._video_writer.release()
+                self._video_writer = None
+                logger_app.info("\nVideo generation complete. Saved to: %s", str_output_path)
+
+    def generate_video_from_image_buffers(self, list_bytes_frame_image_buffers: list[bytes], str_output_path: str, int_fps: int = 30) -> None:
+        """Generate a video file from ordered raw image buffers."""
+        if not list_bytes_frame_image_buffers:
+            logger_app.error("Cannot generate storyboard video because no image buffers were supplied.")
+            raise ValueError("Image buffer list cannot be empty.")
+
+        tuple_reference_size: tuple[int, int] | None = None
+        try:
             if bool_has_video_support:
                 str_filename_short = os.path.basename(str_output_path)
                 if len(str_filename_short) > 30:
                     str_filename_short = str_filename_short[:27] + "..."
-                obj_range = tqdm(range(int_duration), desc=f"Rendering {str_filename_short}", unit="frame")
+                obj_iterable_buffers = tqdm(list_bytes_frame_image_buffers, desc=f"Encoding {str_filename_short}", unit="frame")
             else:
-                obj_range = range(int_duration) # Will crash cleanly in save_video_fragment immediately
-                
-            for int_step in obj_range:
-                float_progress = int_step / float(int_duration - 1)
-                obj_current_settings = obj_start_settings.interpolate(obj_end_settings, float_progress)
-                image_buffer = self.render_buffer(obj_current_settings)
-                self.save_video_fragment(image_buffer, str_output_path, int_num_frames=1, int_fps=int_fps)
-                
-        if self._video_writer is not None:
-            self._video_writer.release()
-            self._video_writer = None
-            logger_app.info("\nVideo generation complete. Saved to: %s", str_output_path)
+                obj_iterable_buffers = list_bytes_frame_image_buffers
+
+            for int_frame_index, bytes_frame_image in enumerate(obj_iterable_buffers):
+                try:
+                    obj_bytes_io = io.BytesIO(bytes_frame_image)
+                    image_frame = Image.open(obj_bytes_io).convert("RGB")
+                except Exception as exc_error:
+                    logger_app.error(
+                        "Failed to decode storyboard image buffer at frame index %d. Context: %s",
+                        int_frame_index,
+                        exc_error,
+                    )
+                    raise RuntimeError(
+                        f"Failed to decode storyboard image buffer at frame index {int_frame_index}."
+                    ) from exc_error
+
+                if tuple_reference_size is None:
+                    tuple_reference_size = image_frame.size
+                elif image_frame.size != tuple_reference_size:
+                    image_frame = image_frame.resize(tuple_reference_size, Image.Resampling.LANCZOS)
+
+                self.save_video_fragment(image_frame, str_output_path, int_num_frames=1, int_fps=int_fps)
+        finally:
+            if self._video_writer is not None:
+                self._video_writer.release()
+                self._video_writer = None
+                logger_app.info("Storyboard video generation complete. Saved to: %s", str_output_path)
 
 
 def main() -> None:

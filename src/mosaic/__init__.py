@@ -7,6 +7,7 @@ from .mosaic_generator import get_version
 from .mosaic_generator import lerp_float
 from .mosaic_generator import lerp_int
 from .mosaic_generator import main
+from .video_storyboard import VideoStoryboard
 
 __all__ = [
     "__version__",
@@ -16,4 +17,5 @@ __all__ = [
     "lerp_float",
     "lerp_int",
     "main",
+    "VideoStoryboard",
 ]
