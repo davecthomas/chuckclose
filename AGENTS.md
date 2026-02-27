@@ -15,6 +15,7 @@ We are using python 3.11.13 so use all modern python language constructs support
 
 - Place all source files and examples in `src/upside_lib_ai_api_unified/`.
 - Store all tests in the `tests/` directory and mock network calls whenever possible.
+- Name new files after the primary class or feature they contain; avoid generic filenames.
 
 ## 3 · Variables
 
@@ -29,6 +30,11 @@ We are using python 3.11.13 so use all modern python language constructs support
 #### No hardcoded strings or numbers in variable assignments
 
 - Create descriptive constant names for any variable assignments or logical tests for clarity.
+
+## 4 · Environment & security
+
+- Keep `env_template.txt` updated with required environment variables, default behaviors, and usage notes. Never place real secrets in this file.
+- Use `secrets` for security-sensitive randomness; do not use `random` for tokens, identifiers, or anything security-related.
 
 ## NEVER use getattr or hasattr if you know the class methods and properties can be accessed
 
@@ -78,4 +84,7 @@ getattr and hasattr is hard to read and unnecessary if you know the class member
 
 ## Logging
 
-Use a shared logger rather than printing info, warning, errors.
+- Use a shared logger rather than printing info, warning, errors.
+- Use parameterized logging (for example, `logger.info("value: %s", value)`) rather than f-strings in log calls.
+- Keep log messages actionable and never include secrets or PII.
+- Do not embed timestamps directly in log messages; rely on logger configuration/formatters.
