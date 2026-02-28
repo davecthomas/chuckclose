@@ -4,9 +4,11 @@
 
 - Project: `mosaic`
 - Repository root: `/Users/davidthomas/code/davecthomas/chuckclose`
-- Current version: `1.2.0`
+- Current version: `1.5.0`
 - Primary implementation files:
 - `src/mosaic/mosaic_generator.py`
+- `src/mosaic/mosaic_image_inputs.py`
+- `src/mosaic/mosaic_settings.py`
 - `src/mosaic/ai_api.py`
 - `src/mosaic/__version__.py`
 - Supporting files:
@@ -92,6 +94,7 @@ Optional AI helper functionality is provided through a dedicated wrapper module 
 Top-level layout:
 
 - `src/mosaic/mosaic_generator.py`: core rendering engine and CLI
+- `src/mosaic/mosaic_image_inputs.py`: validated input model for image path or frame buffers
 - `src/mosaic/ai_api.py`: AI client wrapper around `ai-api-unified`
 - `src/mosaic/__version__.py`: package version constant
 - `src/mosaic/__init__.py`: package exports for public API surface
@@ -117,7 +120,7 @@ The architecture is a single-process CLI pipeline with optional AI helper utilit
 - Supports temporal interpolation between two settings snapshots
 
 3. Rendering Engine (`Mosaic`)
-- Loads source image
+- Loads source frames from `MosaicImageInputs` (file path or in-memory image buffers)
 - Generates sampling cells according to spatial mode
 - Extracts representative color per cell
 - Renders and composites cell shapes into final frame buffer
@@ -134,12 +137,13 @@ The architecture is a single-process CLI pipeline with optional AI helper utilit
 ### 8.2 Runtime Lifecycle
 
 1. User executes CLI command.
-2. CLI parses parameters and creates `Mosaic` with source image.
-3. CLI builds `MosaicSettings` start state.
-4. For static render:
+2. CLI parses parameters and creates `MosaicImageInputs` from source image path.
+3. CLI creates `Mosaic` from validated `MosaicImageInputs`.
+4. CLI builds `MosaicSettings` start state.
+5. For static render:
 - single call to `render_buffer`
 - image saved to output path
-5. For video render:
+6. For video render:
 - constructs end-state settings
 - loops over temporal steps, interpolates settings, renders frame, appends to video
 - releases `VideoWriter`
@@ -151,36 +155,17 @@ The architecture is a single-process CLI pipeline with optional AI helper utilit
 ### Responsibilities
 
 - Version retrieval (`get_version`)
-- Numeric parsing helpers (`safe_parse_int`, `safe_parse_float`)
-- Interpolation utilities (`lerp_float`, `lerp_int`)
-- Render settings model (`MosaicSettings`)
 - Mosaic rendering implementation (`Mosaic`)
 - CLI argument parsing and dispatch (`main`)
 
 ### Key Classes and Functions
 
-#### `MosaicSettings`
-
-Fields:
-
-- `int_grid_size: int = 30`
-- `float_blur_factor: float = 0.0`
-- `int_spatial_interpolation_start: int | None = None`
-- `int_spatial_interpolation_end: int | None = None`
-- `bool_supersample: bool = False`
-- `str_gradient_style: str = "linear_x"`
-
-Method:
-
-- `interpolate(obj_other, float_progress) -> MosaicSettings`
-- Temporal tweening of grid, blur, and spatial interpolation endpoints.
-- Non-numeric mode flags switch source at midpoint (`float_progress < 0.5`).
-
 #### `Mosaic`
 
 Constructor:
 
-- Loads image via Pillow and stores width/height.
+- Accepts a validated `MosaicImageInputs` object.
+- Loads one or many RGB source frames via Pillow and stores width/height from frame 0.
 - Raises `RuntimeError` with context if load fails.
 
 Sampling and rendering methods:
@@ -194,6 +179,7 @@ Sampling and rendering methods:
 - `save_static_image`: persist frame buffer to disk
 - `save_video_fragment`: append frame(s) to `VideoWriter`
 - `generate_video`: iterate temporal timeline and produce MP4
+- `generate_video_from_image_buffers`: encode MP4 from ordered in-memory image buffers
 
 #### `main`
 
@@ -211,7 +197,25 @@ Output naming behavior:
 - Static: `{input_basename}_mosaic_static{ext}`
 - Video: encoded mode/frame count/grid/spatial/blur metadata
 
-## 9.2 `src/mosaic/ai_api.py`
+## 9.2 `src/mosaic/mosaic_settings.py`
+
+### Responsibilities
+
+- Define `MosaicSettings` render-state model.
+- Define interpolation helpers (`lerp_float`, `lerp_int`).
+- Provide temporal interpolation logic through `MosaicSettings.interpolate`.
+
+## 9.3 `src/mosaic/mosaic_image_inputs.py`
+
+### Responsibilities
+
+- Define strict constructor inputs for the `Mosaic` renderer.
+- Enforce exactly one image-source type:
+- `str_input_image_path`
+- `list_bytes_frame_image_buffers`
+- Validate source non-emptiness before runtime rendering work begins.
+
+## 9.4 `src/mosaic/ai_api.py`
 
 ### Responsibilities
 
@@ -230,7 +234,7 @@ Output naming behavior:
 - Runs a completion prompt
 - Runs image generation and writes PNG to `output/`
 
-## 9.3 `tests/create_test_image.py`
+## 9.5 `tests/create_test_image.py`
 
 ### Responsibilities
 
@@ -499,7 +503,8 @@ The storyboard pipeline produces a direct video timeline from generated image bu
 
 - Inputs:
   - Storyboard prompt: `str_storyboard_prompt`
-  - Frame count: `int_num_frames`
+  - Output frame count: `int_num_frames`
+  - Frame hold count: `int_frames_per_image` (default `3`)
 - Outputs:
   - Frame prompt sequence: `list[str]` (`list_str_frame_prompts`)
   - Generated image buffer sequence: `list[bytes]` (`list_bytes_frame_image_buffers`)
@@ -511,13 +516,16 @@ The storyboard pipeline produces a direct video timeline from generated image bu
 
 - Module: `src/mosaic/video_storyboard.py`
 - Class: `VideoStoryboard`
+- Structured prompt model: `StoryboardDecomposerStructuredPrompt` (`AIStructuredPrompt` subclass) in `src/mosaic/storyboard_decomposer_structured_prompt.py`
 - Constructor contract:
-  - `__init__(self, str_storyboard_prompt: str, int_num_frames: int, obj_ai_api: AiApi | None = None) -> None`
-  - Validates non-empty storyboard prompt and `int_num_frames >= 1`
+  - `__init__(self, str_storyboard_prompt: str, int_num_frames: int, int_frames_per_image: int = 3, obj_ai_api: AiApi | None = None) -> None`
+  - Validates non-empty storyboard prompt, `int_num_frames >= 1`, and `int_frames_per_image >= 1`
   - Stores prompt, frame count, provider client, prompt cache, and image-buffer cache
 - Internal state:
   - `self.str_storyboard_prompt: str`
   - `self.int_num_frames: int`
+  - `self.int_frames_per_image: int`
+  - `self.int_num_images: int` (`ceil(int_num_frames / int_frames_per_image)`)
   - `self.obj_ai_api: AiApi`
   - `self.list_str_frame_prompts: list[str]`
   - `self.list_bytes_frame_image_buffers: list[bytes]`
@@ -533,10 +541,11 @@ The storyboard pipeline produces a direct video timeline from generated image bu
 `build_frame_prompts` follows two stages:
 
 1. Story beat extraction
-  - Calls `AiApi.send_prompt` with a constrained instruction to convert the storyboard narrative into ordered beats.
-  - Requires structured output with `frame_index` and `frame_prompt`.
+  - Constructs `StoryboardDecomposerStructuredPrompt(message_input=..., int_num_frames=int_num_images)`.
+  - Calls `AiApi.send_structured_prompt(obj_structured_prompt=..., cls_response_model=StoryboardDecomposerStructuredPrompt, ...)`.
+  - Uses `strict_schema_prompt` through `ai-api-unified`, with typed output containing `frames`, each with `frame_index` and `frame_prompt`.
 2. Frame prompt normalization
-  - Expands or compresses beats to exactly `int_num_frames`.
+  - Expands or compresses beats to exactly `int_num_images`.
   - Preserves continuity anchors across all frames:
     - Subject identity
     - Camera framing and lens context
@@ -549,9 +558,11 @@ Prompt quality requirements:
 - Prompts avoid unresolved references such as "same as previous frame" without restating core identity and style anchors.
 - Style descriptors stay stable to reduce frame-to-frame drift.
 
-Fallback behavior:
+Decomposition contract notes:
 
-- If decomposition fails, deterministic fallback prompts are derived from the storyboard prompt plus frame-index motion directives.
+- Storyboard decomposition is schema-first and model-validated.
+- Freeform completion + ad-hoc JSON scraping/parsing is not part of the design contract for storyboard decomposition.
+- Structured decomposition errors are fatal for storyboard prompt planning; no fallback prompt generation path is used.
 
 ### 22.5 Image Generation Workflow
 
@@ -567,8 +578,8 @@ Failure strategy:
 
 - Log prompt index, high-level context, and exception class.
 - Do not log secrets or full sensitive prompt payloads.
-- Classify retryable versus non-retryable provider errors before deciding retry/abort behavior.
-- Use bounded backoff retries for retryable failures.
+- Use provider-native retry/backoff behavior from `ai-api-unified`.
+- Propagate non-recoverable provider exceptions with actionable context.
 
 ### 22.6 Video Assembly Integration
 
@@ -595,8 +606,8 @@ Orchestration sequence:
 
 Prompt list contract:
 
-- List length equals `int_num_frames`.
-- Ordering is temporal frame order (`0..int_num_frames-1`).
+- List length equals `int_num_images`.
+- Ordering is temporal image order (`0..int_num_images-1`).
 
 Image buffer list contract:
 
@@ -623,7 +634,7 @@ Do not include:
 Unit tests:
 
 - prompt count matches requested frame count
-- fallback prompt generation path
+- structured decomposition failure propagation
 - cache reset behavior
 
 Integration tests (mocked AI client):

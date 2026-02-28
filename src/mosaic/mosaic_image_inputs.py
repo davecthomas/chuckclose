@@ -29,17 +29,17 @@ class MosaicImageInputs:
 
     def __post_init__(self) -> None:
         """Validate source exclusivity and normalize stored values."""
-        bool_has_image_path: bool = bool(
-            self.str_input_image_path and self.str_input_image_path.strip()
+        bool_has_image_path_field: bool = self.str_input_image_path is not None
+        bool_has_frame_buffers_field: bool = (
+            self.list_bytes_frame_image_buffers is not None
         )
-        bool_has_frame_buffers: bool = bool(self.list_bytes_frame_image_buffers)
 
-        if bool_has_image_path and bool_has_frame_buffers:
+        if bool_has_image_path_field and bool_has_frame_buffers_field:
             raise ValueError(
                 "Provide only one image input source: path or frame buffers."
             )
 
-        if not bool_has_image_path and not bool_has_frame_buffers:
+        if not bool_has_image_path_field and not bool_has_frame_buffers_field:
             raise ValueError(
                 "One image input source is required: path or frame buffers."
             )

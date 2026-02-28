@@ -10,6 +10,8 @@ import pytest
 
 from mosaic import mosaic_generator
 from mosaic.mosaic_generator import Mosaic
+from mosaic.mosaic_image_inputs import MosaicImageInputs
+from mosaic.mosaic_settings import MosaicSettings
 
 
 def build_png_bytes(tuple_size: tuple[int, int], tuple_color: tuple[int, int, int]) -> bytes:
@@ -49,7 +51,8 @@ def test_generate_video_from_image_buffers_normalizes_frame_sizes(
     monkeypatch.setattr(mosaic_generator, "bool_has_video_support", False)
     monkeypatch.setattr(Mosaic, "save_video_fragment", obj_recorder.save_video_fragment)
 
-    obj_mosaic = Mosaic(str(path_input_image))
+    obj_mosaic_inputs = MosaicImageInputs(str_input_image_path=str(path_input_image))
+    obj_mosaic = Mosaic(obj_mosaic_inputs)
     list_bytes_buffers = [
         build_png_bytes((10, 10), (10, 10, 10)),
         build_png_bytes((20, 20), (20, 20, 20)),
@@ -63,8 +66,35 @@ def test_generate_video_from_image_buffers_normalizes_frame_sizes(
 
 def test_generate_video_from_image_buffers_rejects_empty_input(path_input_image: Path, tmp_path: Path) -> None:
     """Fail fast when no image buffers are provided."""
-    obj_mosaic = Mosaic(str(path_input_image))
+    obj_mosaic_inputs = MosaicImageInputs(str_input_image_path=str(path_input_image))
+    obj_mosaic = Mosaic(obj_mosaic_inputs)
     str_output_path = str(tmp_path / "storyboard.mp4")
 
     with pytest.raises(ValueError):
         obj_mosaic.generate_video_from_image_buffers([], str_output_path, int_fps=30)
+
+
+def test_render_buffer_uses_selected_source_frame_index() -> None:
+    """Render from frame-buffer constructor input and select source frame by index."""
+    list_bytes_buffers = [
+        build_png_bytes((12, 12), (240, 20, 20)),
+        build_png_bytes((12, 12), (20, 20, 240)),
+    ]
+    obj_mosaic_inputs = MosaicImageInputs(
+        list_bytes_frame_image_buffers=list_bytes_buffers
+    )
+    obj_mosaic = Mosaic(obj_mosaic_inputs)
+    obj_settings = MosaicSettings(int_grid_size=12, float_blur_factor=0.0)
+
+    image_frame_a = obj_mosaic.render_buffer(
+        obj_settings=obj_settings,
+        int_source_frame_index=0,
+    )
+    image_frame_b = obj_mosaic.render_buffer(
+        obj_settings=obj_settings,
+        int_source_frame_index=1,
+    )
+
+    tuple_pixel_a = image_frame_a.getpixel((6, 6))
+    tuple_pixel_b = image_frame_b.getpixel((6, 6))
+    assert tuple_pixel_a != tuple_pixel_b

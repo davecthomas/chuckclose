@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import textwrap
-from copy import deepcopy
 from typing import Any
 
 from ai_api_unified import AIStructuredPrompt
@@ -47,7 +46,9 @@ class StoryboardDecomposerStructuredPrompt(AIStructuredPrompt):
         return dict_values
 
     @model_validator(mode="after")
-    def populate_prompt(self) -> StoryboardDecomposerStructuredPrompt:
+    def _populate_prompt(
+        self: StoryboardDecomposerStructuredPrompt, __: Any
+    ) -> StoryboardDecomposerStructuredPrompt:
         """Populate the inherited prompt field from input fields when present."""
         if self.message_input is not None and self.int_num_frames is not None:
             object.__setattr__(
@@ -61,8 +62,11 @@ class StoryboardDecomposerStructuredPrompt(AIStructuredPrompt):
         return self
 
     @staticmethod
-    def get_prompt(message_input: str, int_num_frames: int) -> str:
+    def get_prompt(message_input: str | None = None, int_num_frames: int | None = None) -> str:
         """Build the storyboard decomposition instruction for the LLM."""
+        if message_input is None or int_num_frames is None:
+            return ""
+
         str_prompt = textwrap.dedent(
             f"""
             Break this storyboard into {int_num_frames} image generation prompts in sequence.
@@ -80,25 +84,14 @@ class StoryboardDecomposerStructuredPrompt(AIStructuredPrompt):
         ).strip()
         return str_prompt
 
-    @classmethod
-    def model_json_schema(cls) -> dict[str, Any]:
-        """Return output-only schema consumed by strict-schema prompting."""
-        dict_schema: dict[str, Any] = deepcopy(super().model_json_schema())
-        dict_schema["type"] = "object"
-        dict_schema["properties"] = {
-            "frames": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "frame_index": {"type": "integer", "minimum": 0},
-                        "frame_prompt": {"type": "string", "minLength": 1},
-                    },
-                    "required": ["frame_index", "frame_prompt"],
-                },
-            }
-        }
-        dict_schema["required"] = ["frames"]
-        dict_schema["additionalProperties"] = False
-        return dict_schema
+
+class StoryboardDecomposerStructuredResult(AIStructuredPrompt):
+    """Structured prompt result schema for storyboard frame decomposition."""
+
+    frames: list[StoryboardFrame]
+
+    @staticmethod
+    def get_prompt() -> str:
+        """Return empty prompt text for response-schema-only model usage."""
+        str_prompt = ""
+        return str_prompt
