@@ -25,6 +25,8 @@ def build_png_bytes(tuple_size: tuple[int, int], tuple_color: tuple[int, int, in
 class StubVideoStoryboard:
     """Storyboard stub that avoids external AI calls in CLI tests."""
 
+    int_last_frames_per_image: int | None = None
+
     def __init__(
         self,
         str_storyboard_prompt: str,
@@ -34,6 +36,7 @@ class StubVideoStoryboard:
         self.str_storyboard_prompt = str_storyboard_prompt
         self.int_num_frames = int_num_frames
         self.int_frames_per_image = int_frames_per_image
+        StubVideoStoryboard.int_last_frames_per_image = int_frames_per_image
 
     def generate_storyboard(self) -> list[bytes]:
         """Return deterministic storyboard image buffers for constructor input."""
@@ -109,3 +112,4 @@ def test_main_storyboard_prompt_mode_routes_to_generate_video(
     assert obj_recorder.int_fps == 12
     assert obj_recorder.obj_start_settings is not None
     assert obj_recorder.obj_end_settings is not None
+    assert StubVideoStoryboard.int_last_frames_per_image == 2

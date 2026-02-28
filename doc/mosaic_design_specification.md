@@ -542,7 +542,7 @@ The storyboard pipeline produces a direct video timeline from generated image bu
 
 1. Story beat extraction
   - Constructs `StoryboardDecomposerStructuredPrompt(message_input=..., int_num_frames=int_num_images)`.
-  - Calls `AiApi.send_structured_prompt(obj_structured_prompt=..., cls_response_model=StoryboardDecomposerStructuredPrompt, ...)`.
+  - Calls `AiApi.send_structured_prompt(obj_structured_prompt=..., cls_response_model=StoryboardDecomposerStructuredResult, ...)`.
   - Uses `strict_schema_prompt` through `ai-api-unified`, with typed output containing `frames`, each with `frame_index` and `frame_prompt`.
 2. Frame prompt normalization
   - Expands or compresses beats to exactly `int_num_images`.

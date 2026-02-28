@@ -165,12 +165,23 @@ class Mosaic:
         if int_source_frame_count <= 1 or int_output_total_frames <= 1:
             return 0
 
-        float_position: float = (
-            int_output_frame_index
-            * (int_source_frame_count - 1)
-            / float(int_output_total_frames - 1)
-        )
-        int_source_index: int = int(round(float_position))
+        if int_output_total_frames >= int_source_frame_count:
+            # Use bucket mapping so source images are held across even frame blocks.
+            float_position = (
+                int_output_frame_index
+                * int_source_frame_count
+                / float(int_output_total_frames)
+            )
+            int_source_index: int = int(math.floor(float_position))
+        else:
+            # When compressing many sources to fewer outputs, preserve timeline endpoints.
+            float_position = (
+                int_output_frame_index
+                * (int_source_frame_count - 1)
+                / float(int_output_total_frames - 1)
+            )
+            int_source_index = int(round(float_position))
+
         int_source_index = max(0, min(int_source_index, int_source_frame_count - 1))
         return int_source_index
 
