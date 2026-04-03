@@ -1,0 +1,9 @@
+{
+  "cwd": "/Users/davidthomas/code/davecthomas/chuckclose",
+  "hook_event_name": "Stop",
+  "last_assistant_message": "Here's the proposed message:\n\n---\n\n**main: Improve mosaic codebase quality and fix test stubs**\n\n**Summary:**\nSeveral issues were identified across the mosaic codebase: missing dev tooling, absent input validation, brittle test stubs, and poor exception handling. These changes bring the project up to a higher standard of correctness and testability.\n\n**Actions:**\n- Added black and ruff to pyproject.toml dev dependencies\n- Updated AGENTS.md to reflect correct Python version, source path, and tooling\n- Added custom exception hierarchy (MosaicInputError, MosaicRenderError, etc.) in new exceptions.py\n- Added MosaicSettings.__post_init__ bounds validation\n- Replaced bare RuntimeError raises with typed exceptions throughout\n- Added deterministic render mode via --seed CLI flag\n- Fixed --version flag to return instead of sys.exit(0)\n- Fixed object.__setattr__ workaround in storyboard_decomposer_structured_prompt\n- Fixed monkeypatch test stub signatures in three test files\n- Added 27 new tests in test_expanded_coverage.py\n- Exported new exception classes from mosaic __init__.py\n\n---\n\nConfirm to proceed?",
+  "permission_mode": "acceptEdits",
+  "session_id": "db1e906f-a9dc-4a61-823f-471349f95238",
+  "stop_hook_active": false,
+  "transcript_path": "/Users/davidthomas/.claude/projects/-Users-davidthomas-code-davecthomas-chuckclose/db1e906f-a9dc-4a61-823f-471349f95238.jsonl"
+}

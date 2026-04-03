@@ -1,6 +1,11 @@
 """Public package interface for the mosaic renderer."""
 
 from .__version__ import __version__
+from .exceptions import AiApiInitError
+from .exceptions import AiApiRequestError
+from .exceptions import MosaicExportError
+from .exceptions import MosaicInputError
+from .exceptions import MosaicRenderError
 from .mosaic_generator import Mosaic
 from .mosaic_image_inputs import MosaicImageInputs
 from .mosaic_generator import get_version
@@ -12,8 +17,13 @@ from .video_storyboard import VideoStoryboard
 
 __all__ = [
     "__version__",
+    "AiApiInitError",
+    "AiApiRequestError",
     "Mosaic",
+    "MosaicExportError",
     "MosaicImageInputs",
+    "MosaicInputError",
+    "MosaicRenderError",
     "MosaicSettings",
     "get_version",
     "lerp_float",

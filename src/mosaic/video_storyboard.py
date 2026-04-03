@@ -249,7 +249,7 @@ def main() -> None:
             int_num_frames=obj_args.num_frames,
             int_frames_per_image=obj_args.frames_per_image,
         )
-        list_bytes_frame_images: list[bytes] = obj_storyboard.generate_storyboard()
+        obj_storyboard.generate_storyboard()
     except Exception as exc_error:
         logger_app.error(
             "Failed to generate storyboard prompt list. Context: %s", exc_error

@@ -7,10 +7,14 @@ from ai_api_unified import AIBaseImageProperties
 from ai_api_unified import AIBaseImages
 from ai_api_unified import AIStructuredPrompt
 
+from .exceptions import AiApiInitError
+from .exceptions import AiApiRequestError
+
 
 # Apply AGENTS.md preferred structured logging format
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 logger_app = logging.getLogger(__name__)
+
 
 class AiApi:
     """
@@ -40,8 +44,12 @@ class AiApi:
                 self.str_completions_engine,
             )
         except Exception as exc_error:
-            logger_app.error("Failed to initialize ai-api-unified completions client: %s", exc_error)
-            raise
+            logger_app.error(
+                "Failed to initialize ai-api-unified completions client: %s", exc_error
+            )
+            raise AiApiInitError(
+                "Failed to initialize completions client."
+            ) from exc_error
 
     def _ensure_image_client(self) -> AIBaseImages:
         """Lazily initialize and return the image provider client."""
@@ -49,10 +57,16 @@ class AiApi:
             try:
                 # ai-api-unified API docs: https://pypi.org/project/ai-api-unified/
                 self._image_client = AIFactory.get_ai_images_client()
-                logger_app.info("Initialized image client. model=%s", self._image_client.model_name)
+                logger_app.info(
+                    "Initialized image client. model=%s", self._image_client.model_name
+                )
             except Exception as exc_error:
-                logger_app.error("Failed to initialize ai-api-unified image client: %s", exc_error)
-                raise
+                logger_app.error(
+                    "Failed to initialize ai-api-unified image client: %s", exc_error
+                )
+                raise AiApiInitError(
+                    "Failed to initialize image client."
+                ) from exc_error
 
         obj_image_client = self._image_client
         return obj_image_client
@@ -60,13 +74,15 @@ class AiApi:
     def send_prompt(self, str_prompt: str) -> str:
         """Dispatch a completion prompt and return provider response text."""
         try:
-            logger_app.info("Dispatching completion prompt to %s...", self._model_client.model_name)
+            logger_app.info(
+                "Dispatching completion prompt to %s...", self._model_client.model_name
+            )
             # ai-api-unified API docs: https://pypi.org/project/ai-api-unified/
             str_response = self._model_client.send_prompt(str_prompt)
             return str_response
         except Exception as exc_error:
             logger_app.error("Failed to generate completion: %s", exc_error)
-            raise
+            raise AiApiRequestError("Completion request failed.") from exc_error
 
     def send_structured_prompt(
         self,
@@ -75,7 +91,9 @@ class AiApi:
     ) -> AIStructuredPrompt:
         """Dispatch a strict-schema prompt from an AIStructuredPrompt instance."""
         try:
-            logger_app.info("Dispatching structured prompt to %s...", self._model_client.model_name)
+            logger_app.info(
+                "Dispatching structured prompt to %s...", self._model_client.model_name
+            )
             # ai-api-unified API docs: https://pypi.org/project/ai-api-unified/
             obj_response: AIStructuredPrompt = self._model_client.strict_schema_prompt(
                 prompt=obj_structured_prompt.prompt,
@@ -84,7 +102,7 @@ class AiApi:
             return obj_response
         except Exception as exc_error:
             logger_app.error("Failed to generate structured completion: %s", exc_error)
-            raise
+            raise AiApiRequestError("Structured prompt request failed.") from exc_error
 
     def create_images(self, str_prompt: str, int_num_images: int = 1) -> list[bytes]:
         """Generate one or more image buffers for a prompt."""
@@ -111,7 +129,7 @@ class AiApi:
             return list_bytes_images
         except Exception as exc_error:
             logger_app.error("Failed to generate image(s): %s", exc_error)
-            raise
+            raise AiApiRequestError("Image generation request failed.") from exc_error
 
     def create_image(self, str_prompt: str) -> bytes:
         """Generate one image and return the first image byte buffer."""
@@ -130,7 +148,9 @@ if __name__ == "__main__":
     try:
         obj_api_client = AiApi()
 
-        str_test_prompt = "In one short sentence, describe the artistic style of Chuck Close."
+        str_test_prompt = (
+            "In one short sentence, describe the artistic style of Chuck Close."
+        )
         print(f"Prompt: '{str_test_prompt}'\n")
 
         str_result = obj_api_client.send_prompt(str_test_prompt)

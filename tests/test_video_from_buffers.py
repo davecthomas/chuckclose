@@ -14,7 +14,9 @@ from mosaic.mosaic_image_inputs import MosaicImageInputs
 from mosaic.mosaic_settings import MosaicSettings
 
 
-def build_png_bytes(tuple_size: tuple[int, int], tuple_color: tuple[int, int, int]) -> bytes:
+def build_png_bytes(
+    tuple_size: tuple[int, int], tuple_color: tuple[int, int, int]
+) -> bytes:
     """Create an in-memory PNG byte payload."""
     image_frame = Image.new("RGB", tuple_size, tuple_color)
     obj_buffer = io.BytesIO()
@@ -31,7 +33,6 @@ class VideoFragmentRecorder:
 
     def save_video_fragment(
         self,
-        self_mosaic: Mosaic,
         image_buffer: Image.Image,
         str_path: str,
         int_num_frames: int = 1,
@@ -59,12 +60,16 @@ def test_generate_video_from_image_buffers_normalizes_frame_sizes(
     ]
 
     str_output_path = str(tmp_path / "storyboard.mp4")
-    obj_mosaic.generate_video_from_image_buffers(list_bytes_buffers, str_output_path, int_fps=30)
+    obj_mosaic.generate_video_from_image_buffers(
+        list_bytes_buffers, str_output_path, int_fps=30
+    )
 
     assert obj_recorder.list_tuple_recorded_sizes == [(10, 10), (10, 10)]
 
 
-def test_generate_video_from_image_buffers_rejects_empty_input(path_input_image: Path, tmp_path: Path) -> None:
+def test_generate_video_from_image_buffers_rejects_empty_input(
+    path_input_image: Path, tmp_path: Path
+) -> None:
     """Fail fast when no image buffers are provided."""
     obj_mosaic_inputs = MosaicImageInputs(str_input_image_path=str(path_input_image))
     obj_mosaic = Mosaic(obj_mosaic_inputs)

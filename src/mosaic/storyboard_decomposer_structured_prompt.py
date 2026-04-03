@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import textwrap
-from typing import Any
 
 from ai_api_unified import AIStructuredPrompt
 from pydantic import BaseModel
@@ -31,55 +30,53 @@ class StoryboardDecomposerStructuredPrompt(AIStructuredPrompt):
     frames: list[StoryboardFrame] | None = None
 
     @model_validator(mode="before")
-    def validate_input(cls, dict_values: dict[str, Any]) -> dict[str, Any]:
+    def validate_input(cls, dict_values: dict) -> dict:
         """Validate constructor input mode while allowing output-parse mode."""
         if "frames" in dict_values:
+            # Early return: this is an output-parse call, not a prompt construction call.
             return dict_values
 
         str_message_input = dict_values.get("message_input")
         int_num_frames = dict_values.get("int_num_frames")
 
         if not isinstance(str_message_input, str) or not str_message_input.strip():
-            raise ValueError("message_input is required for storyboard decomposition prompt construction.")
+            raise ValueError(
+                "message_input is required for storyboard decomposition prompt construction."
+            )
         if not isinstance(int_num_frames, int) or int_num_frames < 1:
-            raise ValueError("int_num_frames must be an integer >= 1 for storyboard decomposition.")
+            raise ValueError(
+                "int_num_frames must be an integer >= 1 for storyboard decomposition."
+            )
         return dict_values
 
-    @model_validator(mode="after")
-    def _populate_prompt(
-        self: StoryboardDecomposerStructuredPrompt, __: Any
-    ) -> StoryboardDecomposerStructuredPrompt:
-        """Populate the inherited prompt field from input fields when present."""
-        if self.message_input is not None and self.int_num_frames is not None:
-            object.__setattr__(
-                self,
-                "prompt",
-                StoryboardDecomposerStructuredPrompt.get_prompt(
-                    message_input=self.message_input,
-                    int_num_frames=self.int_num_frames,
-                ),
-            )
-        return self
+    def get_prompt(self) -> str:
+        """Build the storyboard decomposition instruction for the LLM.
 
-    @staticmethod
-    def get_prompt(message_input: str | None = None, int_num_frames: int | None = None) -> str:
-        """Build the storyboard decomposition instruction for the LLM."""
-        if message_input is None or int_num_frames is None:
+        Reads ``self.message_input`` and ``self.int_num_frames`` directly so that
+        the base-class ``_populate_prompt`` validator can call ``self.get_prompt()``
+        with no arguments. Returns an empty string when either field is absent
+        (output-parse mode).
+
+        Output:
+        - Fully formatted LLM instruction string, or empty string in parse mode.
+        """
+        if self.message_input is None or self.int_num_frames is None:
+            # Early return: output-parse mode; prompt text is not needed.
             return ""
 
         str_prompt = textwrap.dedent(
             f"""
-            Break this storyboard into {int_num_frames} image generation prompts in sequence.
+            Break this storyboard into {self.int_num_frames} image generation prompts in sequence.
 
             Rules:
-            - Return exactly {int_num_frames} frame objects in "frames".
+            - Return exactly {self.int_num_frames} frame objects in "frames".
             - frame_index values must start at 0 and be sequential.
             - Each frame_prompt must be self-contained and fully specified.
             - Keep subject identity, camera framing, lens context, lighting, and style consistent across frames.
             - Only change temporal motion from frame to frame.
 
             Storyboard:
-            {message_input}
+            {self.message_input}
             """
         ).strip()
         return str_prompt
@@ -90,8 +87,12 @@ class StoryboardDecomposerStructuredResult(AIStructuredPrompt):
 
     frames: list[StoryboardFrame]
 
-    @staticmethod
-    def get_prompt() -> str:
-        """Return empty prompt text for response-schema-only model usage."""
+    def get_prompt(self) -> str:
+        """Return empty prompt text for response-schema-only model usage.
+
+        Output:
+        - Empty string; this model is only used to validate structured LLM output.
+        """
         str_prompt = ""
+        # Normal return: result-schema model has no prompt of its own.
         return str_prompt

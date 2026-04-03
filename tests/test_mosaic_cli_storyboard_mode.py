@@ -13,7 +13,9 @@ from mosaic.mosaic_generator import Mosaic
 from mosaic.mosaic_settings import MosaicSettings
 
 
-def build_png_bytes(tuple_size: tuple[int, int], tuple_color: tuple[int, int, int]) -> bytes:
+def build_png_bytes(
+    tuple_size: tuple[int, int], tuple_color: tuple[int, int, int]
+) -> bytes:
     """Create deterministic in-memory PNG bytes for storyboard stubs."""
     image_frame = Image.new("RGB", tuple_size, tuple_color)
     obj_buffer = io.BytesIO()
@@ -61,12 +63,12 @@ class GenerateVideoRecorder:
 
     def generate_video(
         self,
-        obj_mosaic: Mosaic,
         obj_start_settings: MosaicSettings,
         obj_end_settings: MosaicSettings,
         int_duration: int,
         str_output_path: str,
         int_fps: int = 30,
+        obj_rng: object = None,
     ) -> None:
         """Record video call inputs without invoking OpenCV runtime dependencies."""
         self.bool_called = True

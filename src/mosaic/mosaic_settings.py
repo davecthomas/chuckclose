@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .exceptions import MosaicInputError
+
 
 def lerp_float(float_a: float, float_b: float, float_progress: float) -> float:
     """Linearly interpolate between two float values."""
@@ -45,6 +47,31 @@ class MosaicSettings:
     int_spatial_interpolation_end: int | None = None
     bool_supersample: bool = False
     str_gradient_style: str = "linear_x"
+
+    def __post_init__(self) -> None:
+        """Validate settings fields are within acceptable bounds."""
+        if self.int_grid_size < 1:
+            raise MosaicInputError(
+                f"int_grid_size must be >= 1. Received: {self.int_grid_size}"
+            )
+        if self.float_blur_factor < 0.0:
+            raise MosaicInputError(
+                f"float_blur_factor must be >= 0.0. Received: {self.float_blur_factor}"
+            )
+        if (
+            self.int_spatial_interpolation_start is not None
+            and self.int_spatial_interpolation_start < 1
+        ):
+            raise MosaicInputError(
+                f"int_spatial_interpolation_start must be >= 1. Received: {self.int_spatial_interpolation_start}"
+            )
+        if (
+            self.int_spatial_interpolation_end is not None
+            and self.int_spatial_interpolation_end < 1
+        ):
+            raise MosaicInputError(
+                f"int_spatial_interpolation_end must be >= 1. Received: {self.int_spatial_interpolation_end}"
+            )
 
     def interpolate(
         self, obj_other: MosaicSettings, float_progress: float

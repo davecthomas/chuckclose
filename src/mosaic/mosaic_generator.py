@@ -11,16 +11,19 @@ import io
 import logging
 import math
 import os
+import random
 import secrets
 import sys
 from collections.abc import Generator
 
 from PIL import Image, ImageDraw, ImageFilter
 
+from .exceptions import MosaicExportError
+from .exceptions import MosaicRenderError
 from .mosaic_image_inputs import MosaicImageInputs
 from .mosaic_settings import MosaicSettings
-from .mosaic_settings import lerp_float
-from .mosaic_settings import lerp_int
+from .mosaic_settings import lerp_float  # noqa: F401
+from .mosaic_settings import lerp_int  # noqa: F401
 
 # Re-export interpolation helpers from this module path for existing imports.
 
@@ -95,7 +98,7 @@ class Mosaic:
                 int_frame_index,
                 exc_error,
             )
-            raise RuntimeError(
+            raise MosaicRenderError(
                 f"Failed to decode source image buffer at index {int_frame_index}."
             ) from exc_error
 
@@ -125,14 +128,18 @@ class Mosaic:
         if obj_mosaic_image_inputs.str_input_image_path is not None:
             str_input_image_path: str = obj_mosaic_image_inputs.str_input_image_path
             try:
-                image_source: Image.Image = Image.open(str_input_image_path).convert("RGB")
+                image_source: Image.Image = Image.open(str_input_image_path).convert(
+                    "RGB"
+                )
             except Exception as exc_error:
                 logger_app.error(
                     "Failed to open image file: %s. Context: %s",
                     str_input_image_path,
                     exc_error,
                 )
-                raise RuntimeError(f"Error opening image: {exc_error}") from exc_error
+                raise MosaicRenderError(
+                    f"Error opening image: {exc_error}"
+                ) from exc_error
 
             list_image_result: list[Image.Image] = [image_source]
             return list_image_result
@@ -155,7 +162,9 @@ class Mosaic:
             return list_image_normalized_frames
 
         logger_app.error("Mosaic input source did not contain a valid image source.")
-        raise RuntimeError("Mosaic input source did not contain a valid image source.")
+        raise MosaicRenderError(
+            "Mosaic input source did not contain a valid image source."
+        )
 
     def _resolve_source_frame_index(
         self, int_output_frame_index: int, int_output_total_frames: int
@@ -191,7 +200,9 @@ class Mosaic:
         if int_source_frame_count == 0:
             raise RuntimeError("No source images are available for rendering.")
 
-        int_source_index: int = max(0, min(int_source_frame_index, int_source_frame_count - 1))
+        int_source_index: int = max(
+            0, min(int_source_frame_index, int_source_frame_count - 1)
+        )
         image_source: Image.Image = self.list_image_source_frames[int_source_index]
         return image_source
 
@@ -210,9 +221,21 @@ class Mosaic:
 
     @staticmethod
     def get_adaptive_shape_dimension(
-        int_grid_size: int, int_reference_dimension: int
+        int_grid_size: int,
+        int_reference_dimension: int,
+        obj_rng: random.Random | None = None,
     ) -> int:
-        """Compute shape size using adaptive fill ratios by grid-size band."""
+        """Compute shape size using adaptive fill ratios by grid-size band.
+
+        Inputs:
+        - ``int_grid_size``: current grid cell size used to select the size band.
+        - ``int_reference_dimension``: pixel dimension to scale by the fill factor.
+        - ``obj_rng``: optional seeded RNG for deterministic output; uses
+          ``secrets.SystemRandom`` when None.
+
+        Output:
+        - Integer shape dimension, at least 1 pixel.
+        """
         tuple_factor_bounds: tuple[float, float] = Mosaic.get_shape_size_factor_bounds(
             int_grid_size
         )
@@ -222,7 +245,11 @@ class Mosaic:
         if float_min_factor == float_max_factor:
             float_shape_factor: float = float_min_factor
         else:
-            float_shape_factor = secrets.SystemRandom().uniform(
+            # Use caller-supplied RNG for reproducibility; fall back to secrets.
+            obj_uniform_rng: random.Random = (
+                obj_rng if obj_rng is not None else secrets.SystemRandom()
+            )
+            float_shape_factor = obj_uniform_rng.uniform(
                 float_min_factor, float_max_factor
             )
 
@@ -285,14 +312,32 @@ class Mosaic:
         str_shape_type: str = "random",
         bool_supersample: bool = False,
         float_blur_radius: float = 0.0,
+        obj_rng: random.Random | None = None,
     ) -> Image.Image:
-        """Render one shape tile to an RGBA image buffer."""
+        """Render one shape tile to an RGBA image buffer.
+
+        Inputs:
+        - ``tuple_color``: RGB fill color for the shape.
+        - ``int_width``, ``int_height``: target tile dimensions in pixels.
+        - ``str_shape_type``: "circle", "square", or "random".
+        - ``bool_supersample``: render at 4x then downsample via Lanczos.
+        - ``float_blur_radius``: Gaussian blur radius for alpha-edge softening.
+        - ``obj_rng``: optional seeded RNG for deterministic shape selection;
+          uses ``secrets.choice`` when None.
+
+        Output:
+        - RGBA Pillow image of the rendered shape tile.
+        """
         int_width = max(1, int_width)
         int_height = max(1, int_height)
 
         if str_shape_type == "random":
             list_shape_options: list[str] = ["square", "circle"]
-            str_shape_type = secrets.choice(list_shape_options)
+            # Use caller-supplied RNG for reproducibility; fall back to secrets.
+            if obj_rng is not None:
+                str_shape_type = obj_rng.choice(list_shape_options)
+            else:
+                str_shape_type = secrets.choice(list_shape_options)
 
         int_scale: int = 4 if bool_supersample else 1
         int_draw_width: int = max(1, int_width * int_scale)
@@ -333,14 +378,16 @@ class Mosaic:
             )
 
         if float_blur_radius > 0:
-            tuple_channels: tuple[Image.Image, Image.Image, Image.Image, Image.Image] = (
-                image_shape_layer.split()
-            )
+            tuple_channels: tuple[
+                Image.Image, Image.Image, Image.Image, Image.Image
+            ] = image_shape_layer.split()
             channel_alpha: Image.Image = tuple_channels[3]
             channel_alpha_blurred: Image.Image = channel_alpha.filter(
                 ImageFilter.GaussianBlur(radius=float_blur_radius)
             )
-            tuple_merged_channels: tuple[Image.Image, Image.Image, Image.Image, Image.Image] = (
+            tuple_merged_channels: tuple[
+                Image.Image, Image.Image, Image.Image, Image.Image
+            ] = (
                 tuple_channels[0],
                 tuple_channels[1],
                 tuple_channels[2],
@@ -356,6 +403,7 @@ class Mosaic:
         int_height: int,
         int_grid_size: int,
         float_blur_factor: float,
+        obj_rng: random.Random | None = None,
     ) -> Generator[
         tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int], float],
         None,
@@ -365,7 +413,7 @@ class Mosaic:
         int_cols: int = int_width // int_grid_size
         int_rows: int = int_height // int_grid_size
         int_shape_width: int = Mosaic.get_adaptive_shape_dimension(
-            int_grid_size, int_grid_size
+            int_grid_size, int_grid_size, obj_rng
         )
         if int_grid_size < 3:
             float_blur_radius: float = 0.0
@@ -405,6 +453,7 @@ class Mosaic:
         float_blur_factor: float,
         str_axis: str = "x",
         str_gradient_style: str = "linear",
+        obj_rng: random.Random | None = None,
     ) -> Generator[
         tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int], float],
         None,
@@ -427,9 +476,9 @@ class Mosaic:
 
             float_progress = min(max(float_progress, 0.0), 1.0)
 
-            float_calc_size: float = int_start_size + (
-                int_end_size - int_start_size
-            ) * float_progress
+            float_calc_size: float = (
+                int_start_size + (int_end_size - int_start_size) * float_progress
+            )
             int_grid_size: int = max(1, int(round(float_calc_size)))
             if int_grid_size < 3:
                 float_blur_radius = 0.0
@@ -450,7 +499,7 @@ class Mosaic:
                 int_center_y_pos: int = int_top + (int_grid_size // 2)
 
                 int_size_dim: int = Mosaic.get_adaptive_shape_dimension(
-                    int_grid_size, int_grid_size
+                    int_grid_size, int_grid_size, obj_rng
                 )
 
                 tuple_box: tuple[int, int, int, int] = (
@@ -473,6 +522,7 @@ class Mosaic:
         int_start_size: int,
         int_end_size: int,
         float_blur_factor: float,
+        obj_rng: random.Random | None = None,
     ) -> Generator[
         tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int], float],
         None,
@@ -481,14 +531,16 @@ class Mosaic:
         """Yield geometry for concentric radial grid layout."""
         float_cx: float = int_width / 2.0
         float_cy: float = int_height / 2.0
-        float_max_radius: float = math.sqrt((int_width / 2.0) ** 2 + (int_height / 2.0) ** 2) * 1.05
+        float_max_radius: float = (
+            math.sqrt((int_width / 2.0) ** 2 + (int_height / 2.0) ** 2) * 1.05
+        )
         float_current_r: float = 0.0
 
         while float_current_r < float_max_radius:
             float_progress: float = float_current_r / float_max_radius
-            float_calc_width: float = int_start_size + (
-                int_end_size - int_start_size
-            ) * float_progress
+            float_calc_width: float = (
+                int_start_size + (int_end_size - int_start_size) * float_progress
+            )
             float_radial_width: float = max(2.0, float_calc_width)
             int_grid_size: int = max(1, int(round(float_radial_width)))
             if int_grid_size < 3:
@@ -537,7 +589,7 @@ class Mosaic:
                 float_max_dim: float = min(float_radial_width, float_arc_len)
 
                 int_size_dim: int = Mosaic.get_adaptive_shape_dimension(
-                    int_grid_size, max(1, int(round(float_max_dim)))
+                    int_grid_size, max(1, int(round(float_max_dim))), obj_rng
                 )
 
                 tuple_box: tuple[int, int, int, int] = (
@@ -554,18 +606,25 @@ class Mosaic:
             float_current_r += float_radial_width
 
     def render_buffer(
-        self, obj_settings: MosaicSettings, int_source_frame_index: int = 0
+        self,
+        obj_settings: MosaicSettings,
+        int_source_frame_index: int = 0,
+        obj_rng: random.Random | None = None,
     ) -> Image.Image:
         """Render a mosaic image from settings and one selected source frame.
 
         Inputs:
         - ``obj_settings``: rendering settings for this output frame.
         - ``int_source_frame_index``: source-frame index for color sampling.
+        - ``obj_rng``: optional seeded RNG for deterministic shape selection and
+          sizing; uses secrets-based randomness when None.
 
         Output:
         - RGB Pillow image representing one rendered mosaic frame.
         """
-        image_source: Image.Image = self._get_source_image_by_index(int_source_frame_index)
+        image_source: Image.Image = self._get_source_image_by_index(
+            int_source_frame_index
+        )
 
         tuple_white_color: tuple[int, int, int, int] = (255, 255, 255, 255)
         tuple_size: tuple[int, int] = (self.int_width, self.int_height)
@@ -589,6 +648,7 @@ class Mosaic:
                     int_start_size,
                     int_end_size,
                     obj_settings.float_blur_factor,
+                    obj_rng,
                 )
             elif obj_settings.str_gradient_style == "center_y":
                 obj_generator = self.generate_linear_gradient(
@@ -599,6 +659,7 @@ class Mosaic:
                     obj_settings.float_blur_factor,
                     str_axis="y",
                     str_gradient_style="center_y",
+                    obj_rng=obj_rng,
                 )
             elif obj_settings.str_gradient_style == "center_x":
                 obj_generator = self.generate_linear_gradient(
@@ -609,6 +670,7 @@ class Mosaic:
                     obj_settings.float_blur_factor,
                     str_axis="x",
                     str_gradient_style="center_x",
+                    obj_rng=obj_rng,
                 )
             else:
                 obj_generator = self.generate_linear_gradient(
@@ -619,6 +681,7 @@ class Mosaic:
                     obj_settings.float_blur_factor,
                     str_axis="x",
                     str_gradient_style="linear",
+                    obj_rng=obj_rng,
                 )
         else:
             obj_generator = self.generate_standard_grid(
@@ -626,6 +689,7 @@ class Mosaic:
                 self.int_height,
                 obj_settings.int_grid_size,
                 obj_settings.float_blur_factor,
+                obj_rng,
             )
 
         for (
@@ -643,6 +707,7 @@ class Mosaic:
                 tuple_shape_dims[1],
                 bool_supersample=obj_settings.bool_supersample,
                 float_blur_radius=float_blur_radius,
+                obj_rng=obj_rng,
             )
 
             int_paste_x: int = int(tuple_paste_center[0] - image_shape.width // 2)
@@ -663,7 +728,7 @@ class Mosaic:
             logger_app.info("Saved static image to %s", str_path)
         except Exception as exc_error:
             logger_app.error("Failed to save static image. Context: %s", exc_error)
-            raise RuntimeError(f"Error saving image: {exc_error}") from exc_error
+            raise MosaicExportError(f"Error saving image: {exc_error}") from exc_error
 
     def save_video_fragment(
         self,
@@ -708,8 +773,18 @@ class Mosaic:
         int_duration: int,
         str_output_path: str,
         int_fps: int = 30,
+        obj_rng: random.Random | None = None,
     ) -> None:
         """Render and encode a temporal mosaic animation.
+
+        Inputs:
+        - ``obj_start_settings``: rendering settings at the first frame.
+        - ``obj_end_settings``: rendering settings at the last frame.
+        - ``int_duration``: total number of frames to render.
+        - ``str_output_path``: destination MP4 file path.
+        - ``int_fps``: output frames per second.
+        - ``obj_rng``: optional seeded RNG threaded to each ``render_buffer`` call
+          for deterministic output; uses secrets-based randomness when None.
 
         Behavior:
         - Interpolates settings across ``int_duration`` frames.
@@ -719,7 +794,7 @@ class Mosaic:
         try:
             if int_duration <= 1:
                 image_buffer: Image.Image = self.render_buffer(
-                    obj_start_settings, int_source_frame_index=0
+                    obj_start_settings, int_source_frame_index=0, obj_rng=obj_rng
                 )
                 self.save_video_fragment(
                     image_buffer,
@@ -742,9 +817,11 @@ class Mosaic:
 
                 for int_step in obj_range:
                     float_progress: float = int_step / float(int_duration - 1)
-                    obj_current_settings: MosaicSettings = obj_start_settings.interpolate(
-                        obj_end_settings,
-                        float_progress,
+                    obj_current_settings: MosaicSettings = (
+                        obj_start_settings.interpolate(
+                            obj_end_settings,
+                            float_progress,
+                        )
                     )
                     int_source_frame_index: int = self._resolve_source_frame_index(
                         int_step,
@@ -753,6 +830,7 @@ class Mosaic:
                     image_buffer = self.render_buffer(
                         obj_current_settings,
                         int_source_frame_index=int_source_frame_index,
+                        obj_rng=obj_rng,
                     )
                     self.save_video_fragment(
                         image_buffer,
@@ -764,7 +842,9 @@ class Mosaic:
             if self._video_writer is not None:
                 self._video_writer.release()
                 self._video_writer = None
-                logger_app.info("\nVideo generation complete. Saved to: %s", str_output_path)
+                logger_app.info(
+                    "\nVideo generation complete. Saved to: %s", str_output_path
+                )
 
     def generate_video_from_image_buffers(
         self,
@@ -850,9 +930,7 @@ def main() -> None:
         "input_image",
         nargs="?",
         type=str,
-        help=(
-            "Path to source image. Required unless --storyboard_prompt is provided."
-        ),
+        help=("Path to source image. Required unless --storyboard_prompt is provided."),
     )
     obj_parser.add_argument(
         "--version", "-v", action="store_true", help="Print version and exit"
@@ -946,13 +1024,22 @@ def main() -> None:
         default=30,
         help="Frames per second for generated video output.",
     )
+    obj_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional integer seed for deterministic shape selection and sizing.",
+    )
 
     obj_args = obj_parser.parse_args()
 
     if obj_args.version:
-        str_version_text: str = f"mosaic v{get_version()} (Python {sys.version.split()[0]})"
+        str_version_text: str = (
+            f"mosaic v{get_version()} (Python {sys.version.split()[0]})"
+        )
         logger_app.info(str_version_text)
-        sys.exit(0)
+        # Normal exit via return; no image input is needed for --version.
+        return
 
     str_storyboard_prompt: str = (
         obj_args.storyboard_prompt.strip()
@@ -973,11 +1060,28 @@ def main() -> None:
     if obj_args.fps < 1:
         logger_app.error("FPS must be >= 1.")
         sys.exit(1)
+    if obj_args.grid_size < 1:
+        logger_app.error("grid_size must be >= 1.")
+        sys.exit(1)
+    if obj_args.blur_factor < 0.0:
+        logger_app.error("blur_factor must be >= 0.0.")
+        sys.exit(1)
+    if obj_args.spatial_start_size is not None and obj_args.spatial_start_size < 1:
+        logger_app.error("spatial_start_size must be >= 1.")
+        sys.exit(1)
+    if obj_args.spatial_end_size is not None and obj_args.spatial_end_size < 1:
+        logger_app.error("spatial_end_size must be >= 1.")
+        sys.exit(1)
     if not bool_storyboard_mode and obj_args.input_image is None:
         logger_app.error(
             "input_image is required unless --storyboard_prompt is provided."
         )
         sys.exit(1)
+
+    # Build seeded RNG when --seed is provided; None falls back to secrets-based randomness.
+    obj_cli_rng: random.Random | None = (
+        random.Random(obj_args.seed) if obj_args.seed is not None else None
+    )
 
     str_output_dir: str = "output"
     if not os.path.exists(str_output_dir):
@@ -999,7 +1103,9 @@ def main() -> None:
                 list_bytes_frame_image_buffers=list_bytes_storyboard_frames
             )
         else:
-            obj_mosaic_inputs = MosaicImageInputs(str_input_image_path=obj_args.input_image)
+            obj_mosaic_inputs = MosaicImageInputs(
+                str_input_image_path=obj_args.input_image
+            )
 
         obj_mosaic: Mosaic = Mosaic(obj_mosaic_inputs)
     except Exception as exc_error:
@@ -1106,6 +1212,7 @@ def main() -> None:
                 int_duration,
                 str_output_file,
                 int_fps=obj_args.fps,
+                obj_rng=obj_cli_rng,
             )
         except Exception as exc_error:
             logger_app.error("Video rendering failed. Context: %s", exc_error)
@@ -1118,7 +1225,9 @@ def main() -> None:
         )
         logger_app.info("Rendering static image...")
         try:
-            image_rendered_buffer: Image.Image = obj_mosaic.render_buffer(obj_base_settings)
+            image_rendered_buffer: Image.Image = obj_mosaic.render_buffer(
+                obj_base_settings, obj_rng=obj_cli_rng
+            )
             str_fmt: str = str_ext.replace(".", "") if str_ext else "png"
             obj_mosaic.save_static_image(
                 image_rendered_buffer,

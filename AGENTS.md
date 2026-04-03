@@ -2,7 +2,7 @@
 
 ## Python version
 
-We are using python 3.11.13 so use all modern python language constructs supported as of that version.
+We are using python 3.13 so use all modern python language constructs supported as of that version.
 
 ## 1 · Formatting & style
 
@@ -13,8 +13,9 @@ We are using python 3.11.13 so use all modern python language constructs support
 
 ## 2 · Directory layout
 
-- Place all source files and examples in `src/upside_lib_ai_api_unified/`.
+- Place all source files and examples in `src/mosaic/`.
 - Store all tests in the `tests/` directory and mock network calls whenever possible.
+- Run tests with `poetry run pytest`. Test files must match `test_*.py` and test functions must match `test_*`.
 - Name new files after the primary class or feature they contain; avoid generic filenames.
 
 ## 3 · Variables
@@ -61,7 +62,7 @@ getattr and hasattr is hard to read and unnecessary if you know the class member
 
 ## 6 · Module import practices
 
-- Enforce import ordering (standard library → third-party → local) with `isort` in pre-commit.
+- Enforce import ordering (standard library → third-party → local). `ruff` handles this automatically.
 - **Do not** purge modules from `sys.modules`; avoid patterns such as:
 
 ```python

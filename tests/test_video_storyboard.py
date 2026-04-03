@@ -34,7 +34,9 @@ class StubStoryboardAiClient:
     ) -> TypeStructuredPrompt:
         """Return configured storyboard planning response as structured payload."""
         dict_payload = json.loads(self.str_send_prompt_response)
-        obj_response: TypeStructuredPrompt = cls_response_model.model_validate(dict_payload)
+        obj_response: TypeStructuredPrompt = cls_response_model.model_validate(
+            dict_payload
+        )
         return obj_response
 
     def create_image(self, str_prompt: str) -> bytes:
@@ -62,7 +64,11 @@ class PngStoryboardAiClient(StubStoryboardAiClient):
         self.list_str_image_prompts.append(str_prompt)
 
         int_color_seed = (self.int_image_calls * 37) % 255
-        tuple_color = (int_color_seed, (int_color_seed * 2) % 255, (int_color_seed * 3) % 255)
+        tuple_color = (
+            int_color_seed,
+            (int_color_seed * 2) % 255,
+            (int_color_seed * 3) % 255,
+        )
         image_frame = Image.new("RGB", (24, 24), tuple_color)
         obj_buffer = io.BytesIO()
         image_frame.save(obj_buffer, format="PNG")
@@ -78,7 +84,6 @@ class VideoFragmentRecorder:
 
     def save_video_fragment(
         self,
-        self_mosaic: Mosaic,
         image_buffer: Image.Image,
         str_path: str,
         int_num_frames: int = 1,
@@ -180,7 +185,10 @@ def test_storyboard_end_to_end_pipeline_with_video_buffer_assembly(
         {"frame_index": 0, "frame_prompt": "Frame 1: subject looks straight ahead."},
         {"frame_index": 1, "frame_prompt": "Frame 2: subject looks left."},
         {"frame_index": 2, "frame_prompt": "Frame 3: subject blinks."},
-        {"frame_index": 3, "frame_prompt": "Frame 4: subject looks straight ahead again."},
+        {
+            "frame_index": 3,
+            "frame_prompt": "Frame 4: subject looks straight ahead again.",
+        },
     ]
     dict_payload = {"frames": list_dict_frames}
     str_response = json.dumps(dict_payload)
@@ -205,7 +213,9 @@ def test_storyboard_end_to_end_pipeline_with_video_buffer_assembly(
     obj_mosaic_inputs = MosaicImageInputs(str_input_image_path=str(path_input_image))
     obj_mosaic = Mosaic(obj_mosaic_inputs)
     str_output_path = str(tmp_path / "storyboard_pipeline.mp4")
-    obj_mosaic.generate_video_from_image_buffers(list_bytes_storyboard_images, str_output_path, int_fps=24)
+    obj_mosaic.generate_video_from_image_buffers(
+        list_bytes_storyboard_images, str_output_path, int_fps=24
+    )
 
     assert obj_recorder.list_tuple_sizes == [(24, 24), (24, 24), (24, 24), (24, 24)]
 

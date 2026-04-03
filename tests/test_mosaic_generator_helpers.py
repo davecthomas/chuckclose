@@ -24,8 +24,12 @@ def test_lerp_int_rounding_behavior() -> None:
     assert int_value == 2
 
 
-def test_get_version_returns_unknown_when_package_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_version_returns_unknown_when_package_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Validate version fallback behavior when package metadata is unavailable."""
-    monkeypatch.setattr(mosaic_generator.importlib.metadata, "version", raise_package_not_found)
+    monkeypatch.setattr(
+        mosaic_generator.importlib.metadata, "version", raise_package_not_found
+    )
     str_version = mosaic_generator.get_version()
     assert str_version == "unknown"
