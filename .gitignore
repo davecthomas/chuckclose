@@ -52,3 +52,8 @@ output/*.jpg
 output/*.jpeg
 output/*.gif
 output/*.mp4
+# Agent local state (never committed)
+.codex/local/
+.claude/local/
+.claude/settings.local.json
+.agents/memory/logs/

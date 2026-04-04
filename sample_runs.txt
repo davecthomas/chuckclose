@@ -1,0 +1,63 @@
+# Mosaic Storyboard Mode - Sample Runs
+# Run from the repo root
+
+# 1. Minimal — all defaults (standard mode, 24 frames, 3 frames/image)
+poetry run mosaic --storyboard_prompt "A sunset over the ocean"
+
+# 2. Custom frame count and hold duration
+poetry run mosaic --storyboard_prompt "A dog running through a field" \
+  --storyboard_num_frames 36 \
+  --storyboard_frames_per_image 6
+
+# 3. Faster video at 60fps
+poetry run mosaic --storyboard_prompt "A city skyline at night" \
+  --storyboard_num_frames 48 \
+  --fps 60
+
+# 4. Large grid (chunky mosaic) with blur softening
+poetry run mosaic --storyboard_prompt "A forest in autumn" \
+  --grid_size 60 \
+  --blur_factor 0.3
+
+# 5. Fine grid (detailed mosaic)
+poetry run mosaic --storyboard_prompt "A portrait of a woman smiling" \
+  --grid_size 12 \
+  --storyboard_num_frames 30
+
+# 6. Gradient mode with spatial interpolation (small to large cells)
+poetry run mosaic --storyboard_prompt "Waves crashing on a beach" \
+  --mode gradient \
+  --spatial_start_size 8 \
+  --spatial_end_size 48
+
+# 7. Radial mode — cells radiate outward from center
+poetry run mosaic --storyboard_prompt "A flower blooming in timelapse" \
+  --mode radial \
+  --spatial_start_size 6 \
+  --spatial_end_size 40
+
+# 8. Temporal interpolation — grid evolves over the video duration
+poetry run mosaic --storyboard_prompt "A mountain landscape changing seasons" \
+  --mode gradient \
+  --spatial_start_size 10 \
+  --spatial_end_size 20 \
+  --spatial_start_size_temporal_end 30 \
+  --spatial_end_size_temporal_end 60 \
+  --storyboard_num_frames 48
+
+# 9. Deterministic output with a fixed seed (same prompt = same result every time)
+poetry run mosaic --storyboard_prompt "Abstract geometric shapes morphing" \
+  --grid_size 24 \
+  --storyboard_num_frames 30 \
+  --seed 42
+
+# 10. Full production-style run — radial mode, slow hold, 24fps, deterministic
+poetry run mosaic --storyboard_prompt "A volcano erupting at night, dramatic cinematic lighting" \
+  --mode radial \
+  --spatial_start_size 4 \
+  --spatial_end_size 50 \
+  --storyboard_num_frames 60 \
+  --storyboard_frames_per_image 5 \
+  --fps 24 \
+  --blur_factor 0.2 \
+  --seed 99
