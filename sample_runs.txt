@@ -61,3 +61,6 @@ poetry run mosaic --storyboard_prompt "A volcano erupting at night, dramatic cin
   --fps 24 \
   --blur_factor 0.2 \
   --seed 99
+
+# 11. Run the non-mocked real MP4 integration tests
+poetry run pytest --run-real-video tests/test_video_generation_integration.py

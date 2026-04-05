@@ -4,7 +4,7 @@
 
 - Project: `mosaic`
 - Repository root: `/Users/davidthomas/code/davecthomas/chuckclose`
-- Current version: `1.5.0`
+- Current version: `1.6.1`
 - Primary implementation files:
 - `src/mosaic/mosaic_generator.py`
 - `src/mosaic/mosaic_image_inputs.py`
@@ -573,13 +573,13 @@ When output behavior changes:
 - Risk: output drift complicates visual regression testing
 - Mitigation: optional deterministic mode toggle for test builds
 
-## 22. Storyboard Mosaic Support
+## 22. Image Storyboard Pipeline (Fallback Path)
 
 ### 22.1 Objective
 
-`VideoStoryboard` converts one storyboard narrative into a frame-by-frame image prompt sequence, generates images through `AiApi`, and prepares those image buffers for direct video assembly.
+`VideoStoryboard` converts one storyboard narrative into a frame-by-frame image prompt sequence, generates images through `AiApi`, and supplies those image buffers to the mosaic renderer.
 
-The storyboard pipeline produces a direct video timeline from generated image buffers.
+This is the existing image-first storyboard path. It remains supported as a fallback path when native video generation is unavailable, undesired, or unnecessary.
 
 ### 22.2 Feature Scope
 
@@ -590,9 +590,9 @@ The storyboard pipeline produces a direct video timeline from generated image bu
 - Outputs:
   - Frame prompt sequence: `list[str]` (`list_str_frame_prompts`)
   - Generated image buffer sequence: `list[bytes]` (`list_bytes_frame_image_buffers`)
-  - Optional video artifact assembled directly from generated buffers
+  - Optional mosaic-rendered video artifact produced from those buffers
 - Exclusion:
-  - Mosaic transformation of storyboard buffers before video assembly
+  - Native AI video generation
 
 ### 22.3 Class Design
 
@@ -742,9 +742,11 @@ Video assembly tests:
 
 ### 23.1 Objective
 
-**Add AI video generation** (e.g., Google Veo) as a primary source for multi-frame storyboard mosaics. The system supports two distinct storyboard paths:
-1. **Video Path (Recommended):** Generates a single coherent video from the storyboard prompt and extracts frames. This handles inter-frame consistency natively.
-2. **Image Path:** Decomposes the prompt into `N` individual image prompts and generates `N` separate images.
+**Primary objective:** improve temporal coherence in the final mosaic video by generating one coherent source video, extracting clean source frames from that video, and mosaicing those frames in temporal order.
+
+The system supports two distinct storyboard paths:
+1. **Video Path (Primary):** Generate one coherent source video from the storyboard prompt, extract clean source frames, and mosaic those frames. This is the default for multi-frame storyboards.
+2. **Image Path (Fallback):** Decompose the prompt into individual image prompts and generate separate still images. This remains available for single-frame storyboards, debugging, and explicit operator override.
 
 Single-frame storyboards continue to use the image generation path.
 
@@ -752,20 +754,21 @@ Single-frame storyboards continue to use the image generation path.
 
 **Inputs:**
 - Storyboard prompt: `str_storyboard_prompt` (same as existing)
-- Storyboard mode: `image` or `video` (new)
+- Storyboard mode: `image` or `video` (new, default `video` for multi-frame storyboards)
+- Final mosaic frame count: `int_num_frames`
 - Video generation properties: duration, aspect ratio, resolution (new)
-- Frame extraction strategy: time offsets or frame indices (new)
 - Mosaic rendering settings: grid size, mode, blur, etc. (existing)
 
 **Outputs:**
 - AI-generated source video (intermediate artifact, optionally saved)
-- Extracted image frames from the generated video
+- Extracted source frame image buffers from the generated video
 - Mosaic-rendered video assembled from mosaicked extracted frames
 
 **Exclusions:**
 - Audio passthrough from generated video
 - Multi-video stitching or blending
 - Real-time / streaming video generation
+- Crossfade or motion-interpolated frame synthesis after provider generation
 
 ### 23.3 Pipeline Architecture
 
@@ -826,10 +829,14 @@ The `ai-api-unified` library (local path dependency at `../aiapi/ai_api_unified`
 - `AIVideoGenerationResult`: job metadata + list of `AIVideoArtifact`
 - `AIVideoArtifact`: mime_type, file_path, remote_uri, width, height, duration_seconds, fps, has_audio
 
-**Supported providers:**
-- Google Gemini Veo (models: veo-3.1-generate-preview, veo-3.1-fast, veo-3.1-lite, veo-3.0, veo-2.0)
-- OpenAI Sora (models: sora-2, sora-2-pro) — deprecated as of April 2026
-- Amazon Bedrock Nova Reel (model: amazon.nova-reel-v1:1)
+**Supported providers in the shared library:**
+- Google Gemini Veo
+- OpenAI Sora
+- Amazon Bedrock Nova Reel
+
+**Implementation choice for this repository:**
+- The first implementation should target `google-gemini` / Veo as the primary path because this repository already depends on `ai-api-unified` with the `google_gemini` extra and the product goal is frame-to-frame continuity, not broad provider coverage.
+- `AiApi` should remain provider-capable, but the CLI and tests should optimize for the Google path first.
 
 **Environment variables:**
 - `VIDEO_ENGINE`: provider selection (e.g., `google-gemini`, `openai`, `bedrock`)
@@ -840,7 +847,14 @@ The `ai-api-unified` library (local path dependency at `../aiapi/ai_api_unified`
 
 **Pre-flight Validation:**
 - The CLI includes a pre-flight check for `ffmpeg` availability when the `video` storyboard path is requested.
-- A `setup.sh` script is provided in the repository root to automate the installation of `ffmpeg` and other system dependencies across macOS and Linux.
+- The CLI also verifies that the optional `video_frames` extraction dependencies are importable before dispatching the video path.
+- A repository-root `setup.sh` script is part of the implementation scope for this coding phase.
+- `setup.sh` is responsible for validating or installing the local prerequisites needed for the video storyboard path, including:
+  - `ffmpeg`
+  - Python dependency installation for this repository
+  - optional `ai-api-unified[video_frames]` support when needed for local frame extraction
+  - environment-variable validation for the selected video provider
+- Runtime dependency failures should still report the exact install guidance from `ai-api-unified` and the local `setup.sh` entrypoint to rerun.
 
 ### 23.5 Module Changes
 
@@ -862,16 +876,21 @@ Add video client initialization and methods to `AiApi`:
   - Calls `create_image()` for each prompt and returns the list of `[bytes]`.
   - Recommended for precise frame-by-frame control or when the video provider is unavailable.
 - **Video Path (`storyboard_mode="video"`):**
-  - Only available for `int_num_images > 1` (falls back to `image` for single frame).
+  - Only available for `int_num_frames > 1` (falls back to `image` for single frame).
   - Sends the storyboard prompt directly to `create_video()` without LLM decomposition.
-  - Extracts `N` frames using **Intelligent Frame Indexing** (see 23.6).
-  - Returns the ordered image buffer list.
+  - Extracts exactly `int_num_frames` source frames from the generated video using integer frame indices derived from the actual generated video metadata.
+  - Returns the ordered image buffer list with one source frame per final output mosaic frame by default.
 
 The LLM prompt decomposition machinery (`StoryboardDecomposerStructuredPrompt`) is retained for both the single-frame path and the multi-frame image path.
 
 New protocol methods on `AiStoryboardClient`:
 - `create_video(str_prompt: str, obj_video_properties: AIBaseVideoProperties) -> AIVideoGenerationResult`
 - `extract_video_frames(bytes_video: bytes, ...) -> list[bytes]`
+
+New `VideoStoryboard` helpers:
+- `_generate_storyboard_from_images() -> list[bytes]`
+- `_generate_storyboard_from_video() -> list[bytes]`
+- `_build_video_frame_indices(int_available_frame_count: int) -> list[int]`
 
 #### 23.5.3 `src/mosaic/mosaic_generator.py` — CLI Integration
 
@@ -882,8 +901,14 @@ New CLI arguments:
 - `--video_model` (str, optional): override `VIDEO_MODEL_NAME` env var
 - `--video_duration` (int, default 8): generated source video duration in seconds
 - `--video_aspect_ratio` (str, default "16:9"): aspect ratio for generated video
-- `--video_resolution` (str, default "720p"): resolution for generated video
+- `--video_resolution` (str, default provider-specific, recommend `1080p` for Veo): resolution for generated video
 - `--save_source_video` (flag): save the intermediate AI-generated video to output/
+
+Existing storyboard argument semantics change:
+
+- `--storyboard_num_frames` becomes the final output mosaic video frame count and, in video mode, the default extracted source frame count.
+- `--storyboard_frames_per_image` remains meaningful only for `--storyboard_mode image`.
+- In `video` mode, `--storyboard_frames_per_image` is ignored and should emit a warning-level log when explicitly provided.
 
 Updated storyboard dispatch in `main()`:
 
@@ -896,24 +921,49 @@ if bool_storyboard_mode:
     )
 ```
 
-### 23.6 Frame Extraction Strategy: Intelligent Frame Indexing
+### 23.6 Frame Extraction Strategy: Exact Indexed Frame Extraction
 
-When extracting frames from the AI-generated video, the system abstracts complexity from the user to ensure high-quality, crisp frames:
+Clean extracted source frames are a hard requirement for the mosaic pipeline. The implementation should therefore optimize for deterministic extraction of exact decoded video frames, not convenient timestamp sampling.
 
-1. **Optimal Frame Mapping:** The system automatically maps requested intervals to the nearest integer frame indices based on the generated video's metadata (FPS and duration). This prevents "blurry" frames caused by sub-frame interpolation.
-2. **Keyframe Alignment:** The extraction logic utilizes the provider's best-available alignment to retrieve the cleanest possible frames.
-3. **Uniform Sampling:** By default, it divides the video duration evenly by `int_num_images`. 
-   - Example: 8-second video, 8 images → extraction at frame indices matching 0s, 1s, 2s, ..., 7s.
-4. **Format:** Extracted frames are PNG bytes by default, compatible with existing Pillow decode paths.
+Rules:
+
+1. **The storyboard video path extracts by integer frame index, not by time offset, in the mosaic code path.**
+2. **The system first downloads or materializes the provider result as a local MP4, then extracts frames locally.**
+3. **The system computes extraction indices from the generated video's actual metadata.**
+4. **The system extracts exactly `int_num_frames` frames by default, yielding one source frame per final mosaic frame.**
+5. **The system returns PNG bytes so the existing Pillow decode path remains unchanged.**
+
+Indexing behavior:
+
+- Inspect the generated video metadata to determine the available frame count and FPS.
+- Build a monotonic list of integer frame indices spanning the full source video timeline.
+- Include the first and last available frames in the extracted set.
+- When `int_num_frames` equals the available frame count, extract every frame.
+- When `int_num_frames` is smaller than the available frame count, sample uniformly across the full frame range.
+- When `int_num_frames` is greater than the available frame count, fail fast with an actionable error rather than fabricating interpolated frames.
+
+Rationale:
+
+- Time-offset extraction can round into unexpected neighboring frames and is not the preferred path here.
+- The mosaic renderer benefits more from clean discrete frames than from nominally convenient timestamp semantics.
+- Failing fast is preferable to silently introducing blurry or synthesized intermediate frames into the mosaic source sequence.
+
+Example:
+
+- Generated video contains 192 frames.
+- Requested `--storyboard_num_frames 60`.
+- The system computes 60 ascending integer frame indices across `[0, 191]` and extracts those exact frames.
 
 ### 23.7 Interface Contracts
 
 Video generation result contract:
 - At least one `AIVideoArtifact` with a valid video buffer
-- Video duration and fps available in artifact metadata for frame offset computation
+- Video artifact must be downloadable or already materialized locally
+- Video duration and FPS metadata must be available, or the extraction helper must be able to infer them from the local MP4
 
 Extracted frame list contract (same as existing storyboard contract):
-- List length equals `int_num_images`
+- List length equals `int_num_frames` in video mode
+- List length equals `int_num_images` in image mode
 - Each entry is raw image bytes decodable by Pillow
 - Ordering is temporal (ascending time offset)
 
@@ -927,6 +977,7 @@ Extracted frame list contract (same as existing storyboard contract):
 | No artifacts in result | `AiApiRequestError` — "No video artifacts returned" |
 | Frame extraction fails (corrupt video, ffmpeg missing) | `AiApiRequestError` with dependency guidance |
 | Zero frames extracted | `ValueError` — "No frames extracted from video" |
+| Requested extracted frame count exceeds available source frames | `ValueError` with source/target frame counts and operator guidance |
 
 ### 23.9 Environment Configuration
 
@@ -956,7 +1007,7 @@ Structured logs for the video generation path:
 - `AiApi.create_video()` with mocked video client
 - `AiApi.extract_video_frames()` with mocked static method
 - `VideoStoryboard.generate_storyboard_from_video()` with mocked AI client
-- Frame index computation logic for various duration/frame-count combinations
+- Frame index computation logic for various available-frame-count and requested-frame-count combinations
 - Error propagation for each failure mode
 
 **Integration tests (mocked providers):**
@@ -967,15 +1018,17 @@ Structured logs for the video generation path:
 **Manual validation:**
 - End-to-end run with a real video provider to verify visual quality
 - Compare temporal coherence: video-gen frames vs image-gen frames
+- Inspect extracted source frames directly before mosaicing to verify they are crisp and temporally ordered
 
 ### 23.12 Acceptance Criteria
 
-1. `--storyboard_prompt` with >1 frame defaults to video generation, extracts frames, and produces a mosaic video
+1. `--storyboard_prompt` with `--storyboard_num_frames > 1` defaults to video generation, extracts exactly that many clean source frames, and produces a mosaic video
 2. `--storyboard_mode image` forces the image-decomposition path even for multi-frame storyboards
 3. `--storyboard_prompt` with exactly 1 frame uses image generation
-4. Video generation errors surface with actionable messages and do not crash silently
-5. `--save_source_video` persists the intermediate AI-generated video to output/
-6. All new code has unit test coverage
+4. Video mode extracts frames by integer frame index from the materialized local MP4
+5. Video generation errors surface with actionable messages and do not crash silently
+6. `--save_source_video` persists the intermediate AI-generated video to output/
+7. All new code has unit test coverage
 
 ### 23.13 Migration and Compatibility
 
@@ -984,6 +1037,18 @@ Structured logs for the video generation path:
 - The `pyproject.toml` dependency on `ai-api-unified` already includes the library; the `video_frames` extra may need to be added for frame extraction support.
 - `VIDEO_ENGINE` environment variable is required only when using the video storyboard path.
 - An environment check for `ffmpeg` is performed at runtime for video paths.
+
+### 23.14 Ready-to-Code Decisions
+
+The following decisions are fixed for the first implementation pass:
+
+1. Multi-frame storyboard mode is video-first.
+2. The implementation target is Google Veo via `VIDEO_ENGINE=google-gemini`.
+3. Video mode extracts one source frame per final mosaic frame by default.
+4. Video mode uses exact integer frame indices computed from the generated video's actual metadata.
+5. `--storyboard_frames_per_image` is image-path-only behavior and is ignored in video mode.
+6. Clean extracted frames are more important than accommodating every provider quirk in v1. If a provider cannot reliably support the exact indexed extraction contract, it should not block the Google-first implementation.
+7. `setup.sh` is delivered in the coding phase as the standard environment bootstrap and validation entrypoint for local development.
 
 ## 24. Future Enhancements
 

@@ -5,6 +5,9 @@ from ai_api_unified import AIFactory
 from ai_api_unified import AIBaseCompletions
 from ai_api_unified import AIBaseImageProperties
 from ai_api_unified import AIBaseImages
+from ai_api_unified import AIBaseVideoProperties
+from ai_api_unified import AIBaseVideos
+from ai_api_unified import AIVideoGenerationResult
 from ai_api_unified import AIStructuredPrompt
 
 from .exceptions import AiApiInitError
@@ -33,7 +36,10 @@ class AiApi:
         - `GOOGLE_GEMINI_API_KEY`
         """
         self._image_client: AIBaseImages | None = None
+        self._video_client: AIBaseVideos | None = None
+        self._tuple_video_client_config: tuple[str, str | None] | None = None
         self.str_completions_engine = os.getenv("COMPLETIONS_ENGINE", "google-gemini")
+        self.str_video_engine = os.getenv("VIDEO_ENGINE", "google-gemini")
         try:
             self._model_client: AIBaseCompletions = AIFactory.get_ai_completions_client(
                 completions_engine=self.str_completions_engine
@@ -69,7 +75,72 @@ class AiApi:
                 ) from exc_error
 
         obj_image_client = self._image_client
+        # Normal return with the lazily initialized image client.
         return obj_image_client
+
+    def _ensure_video_client(
+        self,
+        str_video_engine: str | None = None,
+        str_video_model_name: str | None = None,
+    ) -> AIBaseVideos:
+        """Lazily initialize and return the video provider client.
+
+        Purpose:
+        - Resolve a video-generation provider client through `ai-api-unified`.
+        - Rebuild the cached client when the requested engine or model changes.
+
+        Inputs:
+        - `str_video_engine`: Optional provider engine override. Empty values fall
+          back to `VIDEO_ENGINE` or `google-gemini`.
+        - `str_video_model_name`: Optional provider model override. Empty values
+          fall back to the provider default.
+
+        Output:
+        - Returns a configured `AIBaseVideos` implementation for the requested
+          provider configuration.
+        """
+        str_resolved_video_engine: str = (
+            str_video_engine.strip().lower()
+            if str_video_engine is not None and str_video_engine.strip()
+            else self.str_video_engine
+        )
+        str_resolved_video_model_name: str | None = (
+            str_video_model_name.strip()
+            if str_video_model_name is not None and str_video_model_name.strip()
+            else None
+        )
+        tuple_requested_config: tuple[str, str | None] = (
+            str_resolved_video_engine,
+            str_resolved_video_model_name,
+        )
+
+        if (
+            self._video_client is None
+            or self._tuple_video_client_config != tuple_requested_config
+        ):
+            try:
+                # Initialize or refresh the cached video client for the requested provider configuration.
+                self._video_client = AIFactory.get_ai_video_client(
+                    model_name=str_resolved_video_model_name,
+                    video_engine=str_resolved_video_engine,
+                )
+                self._tuple_video_client_config = tuple_requested_config
+                logger_app.info(
+                    "Initialized video client. engine=%s model=%s",
+                    str_resolved_video_engine,
+                    self._video_client.model_name,
+                )
+            except Exception as exc_error:
+                logger_app.error(
+                    "Failed to initialize ai-api-unified video client: %s", exc_error
+                )
+                raise AiApiInitError(
+                    "Failed to initialize video client."
+                ) from exc_error
+
+        obj_video_client: AIBaseVideos = self._video_client
+        # Normal return with the lazily initialized video client.
+        return obj_video_client
 
     def send_prompt(self, str_prompt: str) -> str:
         """Dispatch a completion prompt and return provider response text."""
@@ -79,6 +150,7 @@ class AiApi:
             )
             # ai-api-unified API docs: https://pypi.org/project/ai-api-unified/
             str_response = self._model_client.send_prompt(str_prompt)
+            # Normal return with provider-generated completion text.
             return str_response
         except Exception as exc_error:
             logger_app.error("Failed to generate completion: %s", exc_error)
@@ -99,6 +171,7 @@ class AiApi:
                 prompt=obj_structured_prompt.prompt,
                 response_model=cls_response_model,
             )
+            # Normal return with schema-validated structured prompt output.
             return obj_response
         except Exception as exc_error:
             logger_app.error("Failed to generate structured completion: %s", exc_error)
@@ -126,16 +199,124 @@ class AiApi:
             )
             if not list_bytes_images:
                 raise ValueError("No image bytes returned from provider.")
+            # Normal return with one or more generated image buffers.
             return list_bytes_images
         except Exception as exc_error:
             logger_app.error("Failed to generate image(s): %s", exc_error)
             raise AiApiRequestError("Image generation request failed.") from exc_error
 
     def create_image(self, str_prompt: str) -> bytes:
-        """Generate one image and return the first image byte buffer."""
+        """Generate one image and return the first image byte buffer.
+
+        Purpose:
+        - Provide the simplest image-generation entrypoint used by the existing
+          storyboard image path.
+
+        Inputs:
+        - `str_prompt`: Non-empty prompt text sent to the configured image model.
+
+        Output:
+        - Returns the first generated image as raw bytes.
+        """
         list_bytes_images = self.create_images(str_prompt, int_num_images=1)
         bytes_first_image = list_bytes_images[0]
+        # Normal return with the first generated image buffer.
         return bytes_first_image
+
+    def create_video(
+        self,
+        str_prompt: str,
+        obj_video_properties: AIBaseVideoProperties,
+        str_video_engine: str | None = None,
+        str_video_model_name: str | None = None,
+    ) -> AIVideoGenerationResult:
+        """Generate one AI video artifact and return the normalized result.
+
+        Purpose:
+        - Submit one video-generation request through `ai-api-unified`.
+        - Wait for completion and return the normalized artifact/result payload.
+
+        Inputs:
+        - `str_prompt`: Non-empty storyboard prompt sent to the video provider.
+        - `obj_video_properties`: `AIBaseVideoProperties` carrying duration,
+          aspect ratio, resolution, output directory, and timeout controls.
+        - `str_video_engine`: Optional provider engine override. Empty values use
+          `VIDEO_ENGINE` or `google-gemini`.
+        - `str_video_model_name`: Optional provider model override. Empty values
+          use the provider default.
+
+        Output:
+        - Returns an `AIVideoGenerationResult` containing the normalized job
+          metadata plus one or more `AIVideoArtifact` entries.
+        """
+        obj_video_client: AIBaseVideos = self._ensure_video_client(
+            str_video_engine=str_video_engine,
+            str_video_model_name=str_video_model_name,
+        )
+
+        try:
+            logger_app.info(
+                "Dispatching video prompt to engine=%s model=%s",
+                (
+                    self._tuple_video_client_config[0]
+                    if self._tuple_video_client_config is not None
+                    else self.str_video_engine
+                ),
+                obj_video_client.model_name,
+            )
+            obj_result: AIVideoGenerationResult = obj_video_client.generate_video(
+                str_prompt,
+                video_properties=obj_video_properties,
+            )
+            # Normal return with a completed normalized video-generation result.
+            return obj_result
+        except TimeoutError as exc_error:
+            logger_app.error("Video generation timed out: %s", exc_error)
+            raise AiApiRequestError(
+                "Video generation request timed out."
+            ) from exc_error
+        except Exception as exc_error:
+            logger_app.error("Failed to generate video: %s", exc_error)
+            raise AiApiRequestError("Video generation request failed.") from exc_error
+
+    def extract_video_frames(
+        self,
+        bytes_video: bytes,
+        list_float_time_offsets: list[float] | None = None,
+        list_int_frame_indices: list[int] | None = None,
+    ) -> list[bytes]:
+        """Extract image buffers from one local video buffer.
+
+        Purpose:
+        - Convert a materialized MP4 byte stream into a deterministic ordered list
+          of PNG frame buffers for the mosaic renderer.
+
+        Inputs:
+        - `bytes_video`: Non-empty video bytes representing one local MP4 file.
+        - `list_float_time_offsets`: Optional extraction offsets in seconds. This
+          path is supported for generality but the storyboard video path prefers
+          explicit integer frame indices.
+        - `list_int_frame_indices`: Optional explicit integer frame indices. This
+          is the preferred path for clean, deterministic storyboard extraction.
+
+        Output:
+        - Returns a `list[bytes]` where each item is one extracted PNG frame in
+          the same order as the requested offsets or indices.
+        """
+        try:
+            list_bytes_frames: list[bytes] = (
+                AIBaseVideos.extract_image_frames_from_video_buffer(
+                    bytes_video,
+                    time_offsets_seconds=list_float_time_offsets,
+                    frame_indices=list_int_frame_indices,
+                    image_format="png",
+                )
+            )
+            # Normal return with extracted PNG frame buffers in requested order.
+            return list_bytes_frames
+        except Exception as exc_error:
+            logger_app.error("Failed to extract video frames: %s", exc_error)
+            raise AiApiRequestError("Video frame extraction failed.") from exc_error
 
 
 if __name__ == "__main__":
