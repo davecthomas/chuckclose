@@ -75,19 +75,19 @@ poetry run mosaic <input_image> --mode radial --video [FRAMES] \
 # Storyboard prompt driven video mode (default path: Google Veo -> exact frame extraction -> mosaic)
 poetry run mosaic --storyboard_prompt "An extreme closeup of a fair-skinned woman's right eye. She looks straight ahead, then left, blinks, and looks ahead again. " \
   --storyboard_num_frames 30 --storyboard_mode video --video_duration 8 --video_resolution 1080p \
-  --mode radial --video 30 \
+  --mode radial \
   --spatial_start_size 10 --spatial_end_size 40
 
 # Storyboard prompt mode with explicit source-video persistence
 poetry run mosaic --storyboard_prompt "Extreme closeup face of a latino male, broadly smiling, wearing a cowboy hat, eyes squinting in the sunlight." \
   --storyboard_num_frames 24 --storyboard_mode video --save_source_video \
-  --mode radial --video 24 \
+  --mode radial \
   --spatial_start_size 10 --spatial_end_size 40 --fps 24
 
 # Force the legacy image decomposition path
 poetry run mosaic --storyboard_prompt "A portrait turns slightly and smiles." \
   --storyboard_num_frames 24 --storyboard_mode image --storyboard_frames_per_image 3 \
-  --mode radial --video 24 \
+  --mode radial \
   --spatial_start_size 10 --spatial_end_size 40
 ```
 
@@ -280,7 +280,7 @@ _Generates a 90-frame video. Starts as a flat 10px mosaic, and animates the oute
 ```bash
 poetry run mosaic --storyboard_prompt "An extreme closeup of a fair-skinned woman's right eye. She looks straight ahead, then left, blinks, and looks ahead again." \
   --storyboard_num_frames 24 --storyboard_mode video --video_duration 8 --video_resolution 1080p \
-  --mode radial --video 24 \
+  --mode radial \
   --spatial_start_size 10 --spatial_end_size 40
 ```
 

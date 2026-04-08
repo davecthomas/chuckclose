@@ -258,6 +258,47 @@ def test_generate_storyboard_image_mode_raises_for_image_generation_error() -> N
         obj_storyboard.generate_storyboard(str_storyboard_mode="image")
 
 
+def test_generate_storyboard_defaults_to_image_mode_for_backward_compatibility() -> (
+    None
+):
+    """Ensure omitted storyboard mode preserves the legacy image-generation path.
+
+    Purpose:
+    - Verify the public library API still defaults to image generation when the
+      caller does not pass `str_storyboard_mode`.
+    - Protect existing Python integrations from silently switching to the paid
+      video-generation path.
+
+    Inputs:
+    - None. The test constructs one storyboard with a deterministic AI stub and
+      calls `generate_storyboard()` without arguments.
+
+    Output:
+    - Returns `None` after asserting the image path runs and the video path does
+      not run.
+    """
+    str_response = """
+    {
+      "frames": [
+        {"frame_index": 0, "frame_prompt": "first prompt"},
+        {"frame_index": 1, "frame_prompt": "second prompt"}
+      ]
+    }
+    """
+    obj_stub_client = StubStoryboardAiClient(str_response)
+    obj_storyboard = VideoStoryboard(
+        str_storyboard_prompt="Storyboard prompt",
+        int_num_frames=2,
+        int_frames_per_image=1,
+        obj_ai_api=obj_stub_client,
+    )
+
+    list_bytes_images = obj_storyboard.generate_storyboard()
+
+    assert list_bytes_images == [b"image-1", b"image-2"]
+    assert obj_stub_client.int_video_calls == 0
+
+
 def test_generate_storyboard_video_mode_extracts_exact_frame_indices(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -344,6 +385,7 @@ def test_validate_video_runtime_dependencies_accepts_imageio_ffmpeg_backend(
     """Accept a usable `imageio-ffmpeg` backend without requiring PATH `ffmpeg`."""
     path_ffmpeg_executable = tmp_path / "ffmpeg"
     path_ffmpeg_executable.write_text("stub-binary", encoding="utf-8")
+    path_ffmpeg_executable.chmod(0o755)
 
     def import_module_stub(str_module_name: str) -> Any:
         """Return deterministic modules for decoder preflight validation.
@@ -374,6 +416,64 @@ def test_validate_video_runtime_dependencies_accepts_imageio_ffmpeg_backend(
     monkeypatch.setattr(importlib, "import_module", import_module_stub)
 
     VideoStoryboard.validate_video_runtime_dependencies()
+
+
+def test_validate_video_runtime_dependencies_rejects_non_executable_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Reject a resolved `imageio-ffmpeg` path that is not executable.
+
+    Purpose:
+    - Verify storyboard video preflight fails early when `imageio_ffmpeg`
+      resolves to a file without execute permissions.
+    - Prevent later runtime failures that would occur after a paid source-video
+      generation request.
+
+    Inputs:
+    - `monkeypatch`: Pytest monkeypatch fixture used to replace optional module
+      imports with deterministic stubs.
+    - `tmp_path`: Temporary directory used to create one non-executable backend
+      file.
+
+    Output:
+    - Returns `None` after asserting that preflight raises `RuntimeError` with
+      executable guidance.
+    """
+    path_ffmpeg_executable = tmp_path / "ffmpeg"
+    path_ffmpeg_executable.write_text("stub-binary", encoding="utf-8")
+    path_ffmpeg_executable.chmod(0o644)
+
+    def import_module_stub(str_module_name: str) -> Any:
+        """Return deterministic modules for non-executable backend validation.
+
+        Purpose:
+        - Simulate the optional decoder imports used by storyboard video
+          preflight while forcing a non-executable backend file.
+
+        Inputs:
+        - `str_module_name`: Requested module import name.
+
+        Output:
+        - Returns one lightweight module substitute for supported names.
+        - Raises `ImportError` for any unsupported module import.
+        """
+        if str_module_name == "imageio":
+            # Normal return with a generic object because the preflight only validates importability.
+            return object()
+        if str_module_name == "imageio_ffmpeg":
+            obj_module = StubImageioFfmpegModule(path_ffmpeg_executable)
+            # Normal return with a stub backend module that resolves one non-executable file.
+            return obj_module
+        if str_module_name == "PIL.Image":
+            # Normal return with the real PIL image module because the preflight only validates importability.
+            return Image
+        raise ImportError(f"Unexpected module import requested: {str_module_name}")
+
+    monkeypatch.setattr(importlib, "import_module", import_module_stub)
+
+    with pytest.raises(RuntimeError, match="execute permissions"):
+        VideoStoryboard.validate_video_runtime_dependencies()
 
 
 def test_storyboard_end_to_end_image_pipeline_with_video_buffer_assembly(

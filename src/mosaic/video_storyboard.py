@@ -6,6 +6,7 @@ import argparse
 import importlib
 import logging
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -17,8 +18,6 @@ from ai_api_unified.videos.frame_helpers import FRAME_EXTRA_INSTALL_MESSAGE
 
 from .storyboard_decomposer_structured_prompt import (
     StoryboardDecomposerStructuredPrompt,
-)
-from .storyboard_decomposer_structured_prompt import (
     StoryboardDecomposerStructuredResult,
 )
 
@@ -29,6 +28,26 @@ TypeStoryboardMode = Literal["image", "video"]
 DEFAULT_STORYBOARD_IMAGE_MODE: str = "image"
 DEFAULT_STORYBOARD_VIDEO_MODE: str = "video"
 DEFAULT_STORYBOARD_FRAMES_PER_IMAGE: int = 3
+STORYBOARD_VIDEO_RUNTIME_SOURCE_CHECKOUT_MESSAGE: str = (
+    "If you are running from a source checkout, `./setup.sh` can also bootstrap "
+    "local prerequisites."
+)
+STORYBOARD_VIDEO_RUNTIME_INSTALL_GUIDANCE: str = (
+    f"{FRAME_EXTRA_INSTALL_MESSAGE} "
+    f"{STORYBOARD_VIDEO_RUNTIME_SOURCE_CHECKOUT_MESSAGE}"
+)
+STORYBOARD_VIDEO_RUNTIME_BACKEND_MESSAGE: str = (
+    "Storyboard video mode requires a usable `imageio-ffmpeg` backend. "
+    f"{STORYBOARD_VIDEO_RUNTIME_INSTALL_GUIDANCE}"
+)
+STORYBOARD_VIDEO_RUNTIME_PATH_MESSAGE: str = (
+    "Storyboard video mode requires `imageio-ffmpeg` to resolve to an existing "
+    f"executable file. {STORYBOARD_VIDEO_RUNTIME_INSTALL_GUIDANCE}"
+)
+STORYBOARD_VIDEO_RUNTIME_EXECUTABLE_MESSAGE: str = (
+    "Storyboard video mode requires execute permissions for the resolved "
+    f"`imageio-ffmpeg` binary. {STORYBOARD_VIDEO_RUNTIME_INSTALL_GUIDANCE}"
+)
 
 
 class AiStoryboardClient(Protocol):
@@ -166,17 +185,13 @@ class VideoStoryboard:
         try:
             str_ffmpeg_executable_path: str = imageio_ffmpeg_module.get_ffmpeg_exe()
         except Exception as exc_error:
-            raise RuntimeError(
-                "Storyboard video mode requires a usable `imageio-ffmpeg` backend. "
-                "Run `./setup.sh` to bootstrap local prerequisites."
-            ) from exc_error
+            raise RuntimeError(STORYBOARD_VIDEO_RUNTIME_BACKEND_MESSAGE) from exc_error
 
         path_ffmpeg_executable: Path = Path(str_ffmpeg_executable_path)
-        if not path_ffmpeg_executable.exists():
-            raise RuntimeError(
-                "Storyboard video mode requires a usable `imageio-ffmpeg` backend. "
-                "Run `./setup.sh` to bootstrap local prerequisites."
-            )
+        if not path_ffmpeg_executable.is_file():
+            raise RuntimeError(STORYBOARD_VIDEO_RUNTIME_PATH_MESSAGE)
+        if not os.access(path_ffmpeg_executable, os.X_OK):
+            raise RuntimeError(STORYBOARD_VIDEO_RUNTIME_EXECUTABLE_MESSAGE)
         # Normal return after validating video extraction prerequisites.
         return None
 
@@ -646,7 +661,7 @@ class VideoStoryboard:
 
     def generate_storyboard(
         self,
-        str_storyboard_mode: str = DEFAULT_STORYBOARD_VIDEO_MODE,
+        str_storyboard_mode: str = DEFAULT_STORYBOARD_IMAGE_MODE,
         obj_video_properties: AIBaseVideoProperties | None = None,
         str_video_engine: str | None = None,
         str_video_model_name: str | None = None,
@@ -656,6 +671,8 @@ class VideoStoryboard:
         Purpose:
         - Route storyboard generation through the image path or video path.
         - Preserve the image path as the fallback for single-frame requests.
+        - Preserve backward-compatible library behavior when callers omit the
+          mode argument.
 
         Inputs:
         - `str_storyboard_mode`: Requested path selection, either `"image"` or

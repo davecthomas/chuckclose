@@ -1,9 +1,0 @@
-{
-  "cwd": "/Users/davidthomas/code/davecthomas/chuckclose",
-  "hook_event_name": "Stop",
-  "last_assistant_message": "Pushed to `github/feature/storyboard-video-generation`.",
-  "permission_mode": "acceptEdits",
-  "session_id": "3fd3cb1a-a81c-45f8-91b1-88b862972a21",
-  "stop_hook_active": false,
-  "transcript_path": "/Users/davidthomas/.claude/projects/-Users-davidthomas-code-davecthomas-chuckclose/3fd3cb1a-a81c-45f8-91b1-88b862972a21.jsonl"
-}
