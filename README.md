@@ -2,7 +2,7 @@
 
 A Python 3.13 tool that converts input images into an artistic grid of Rounded Squares and Circles, outputting either static images or smooth video transitions between different mosaic configurations. It analyzes the color of grid areas in your image and renders filled shapes to recreate the image with a modern, geometric aesthetic.
 
-Current Version: `1.5.0`
+Current Version: `1.6.1`
 
 ![Mosaic Example](output/test_chuckclose_50_0.0.png)
 
@@ -17,13 +17,21 @@ This project uses [Poetry](https://python-poetry.org/) to manage dependencies an
 
 1. **Clone or Download** this project folder.
 2. **Open your terminal** in the project folder.
-3. **Install dependencies**:
+3. **Bootstrap the environment**:
+
+```bash
+./setup.sh
+```
+
+This script installs Python dependencies, verifies `ffmpeg`, seeds `.env` from `env_template.txt` when needed, and validates the Google Veo settings required for storyboard video mode.
+
+4. **Or install dependencies manually**:
 
 ```bash
 poetry install
 ```
 
-_(This command automatically creates a virtual environment and installs Pillow, numpy, and opencv-python into it.)_
+_(This command automatically creates a virtual environment and installs Pillow, numpy, opencv-python, and the `ai-api-unified` Google video dependencies into it.)_
 
 If you are not using Poetry, you can install the dependencies via pip using the provided `requirements.txt`:
 
@@ -64,26 +72,37 @@ poetry run mosaic <input_image> --mode radial --video [FRAMES] \
   --spatial_start_size S_START --spatial_end_size S_END \
   --spatial_start_size_temporal_end T_START --spatial_end_size_temporal_end T_END
 
-# Storyboard prompt driven video mode (no input image required)
+# Storyboard prompt driven video mode (default path: Google Veo -> exact frame extraction -> mosaic)
 poetry run mosaic --storyboard_prompt "An extreme closeup of a fair-skinned woman's right eye. She looks straight ahead, then left, blinks, and looks ahead again. " \
-  --storyboard_num_frames 30 --storyboard_frames_per_image 3 \
-  --mode radial --video 30 \
+  --storyboard_num_frames 30 --storyboard_mode video --video_duration 8 --video_resolution 1080p \
+  --mode radial \
   --spatial_start_size 10 --spatial_end_size 40
 
-# Storyboard prompt mode with explicit FPS override
+# Storyboard prompt mode with explicit source-video persistence
 poetry run mosaic --storyboard_prompt "Extreme closeup face of a latino male, broadly smiling, wearing a cowboy hat, eyes squinting in the sunlight." \
-  --storyboard_num_frames 24 --storyboard_frames_per_image 3 \
-  --mode radial --video 24 \
+  --storyboard_num_frames 24 --storyboard_mode video --save_source_video \
+  --mode radial \
   --spatial_start_size 10 --spatial_end_size 40 --fps 24
+
+# Force the legacy image decomposition path
+poetry run mosaic --storyboard_prompt "A portrait turns slightly and smiles." \
+  --storyboard_num_frames 24 --storyboard_mode image --storyboard_frames_per_image 3 \
+  --mode radial \
+  --spatial_start_size 10 --spatial_end_size 40
 ```
 
 ### Arguments
 
 - **`input_image`**: (Optional in storyboard mode) Path to source image (jpg, png, etc). Required unless `--storyboard_prompt` is provided.
-- **`--storyboard_prompt`**: (Optional) Storyboard text prompt decomposed into AI-generated frame prompts.
-- **`--storyboard_num_frames`**: (Optional) Total output video frame count in storyboard mode. Default: 24.
-- **`--storyboard_frames_per_image`**: (Optional) Number of output video frames that reuse one generated storyboard image. Default: 3.
-  Example: `--storyboard_num_frames 30 --storyboard_frames_per_image 3` requests about 10 generated storyboard image prompts.
+- **`--storyboard_prompt`**: (Optional) Storyboard prompt used to generate source material before mosaic rendering.
+- **`--storyboard_num_frames`**: (Optional) Total final mosaic video frame count in storyboard mode. Default: 24.
+- **`--storyboard_mode`**: (Optional) `video` or `image`. Default: `video`.
+- **`--storyboard_frames_per_image`**: (Optional) Image-mode-only control for how many output frames reuse one generated image. Default: 3.
+- **`--video_model`**: (Optional) Override the default Google Veo model for storyboard video mode.
+- **`--video_duration`**: (Optional) Source-video generation duration in seconds for storyboard video mode. Default: 8.
+- **`--video_aspect_ratio`**: (Optional) Source-video aspect ratio. Choices: `16:9`, `9:16`. Default: `16:9`.
+- **`--video_resolution`**: (Optional) Source-video resolution. Choices: `720p`, `1080p`, `4k`. Default: `1080p`.
+- **`--save_source_video`**: (Optional) Persist the intermediate source video under `output/source_videos`.
 - **`--mode`**: (Optional) Rendering mode. Choices: `standard`, `gradient`, `supersample`, `centervert`, `centerhoriz`, `radial`. Default is `standard`.
 - **`--grid_size`**: (Optional) Integer. Uniform grid size used in `standard` mode. Default: 30.
 - **`--blur_factor`**: (Optional) Float. Controls softness of dots (0.0 = sharp, 0.4 = fuzzy).
@@ -124,11 +143,12 @@ duration_frames = 60
 mosaic.generate_video(start_settings, end_settings, duration_frames, "output.mp4")
 ```
 
-### Storyboard Video Generation (API Only)
+### Storyboard Source Generation (API Only)
 
-You can generate a frame-by-frame storyboard with AI image prompts, use those frames as the mosaic source sequence, and render with full mosaic settings interpolation.
+You can generate storyboard source frames with either the image path or the video path, use those frames as the mosaic source sequence, and render with full mosaic settings interpolation.
 
 ```python
+from ai_api_unified import AIBaseVideoProperties
 from mosaic import Mosaic, MosaicImageInputs, MosaicSettings, VideoStoryboard
 
 storyboard = VideoStoryboard(
@@ -139,7 +159,16 @@ storyboard = VideoStoryboard(
     int_num_frames=24,
 )
 
-list_bytes_frames = storyboard.generate_storyboard()
+video_properties = AIBaseVideoProperties(
+    duration_seconds=8,
+    aspect_ratio="16:9",
+    resolution="1080p",
+)
+
+list_bytes_frames = storyboard.generate_storyboard(
+    str_storyboard_mode="video",
+    obj_video_properties=video_properties,
+)
 obj_mosaic_inputs = MosaicImageInputs(list_bytes_frame_image_buffers=list_bytes_frames)
 mosaic = Mosaic(obj_mosaic_inputs)
 obj_start_settings = MosaicSettings(int_grid_size=12, float_blur_factor=0.05)
@@ -250,12 +279,12 @@ _Generates a 90-frame video. Starts as a flat 10px mosaic, and animates the oute
 
 ```bash
 poetry run mosaic --storyboard_prompt "An extreme closeup of a fair-skinned woman's right eye. She looks straight ahead, then left, blinks, and looks ahead again." \
-  --storyboard_num_frames 24 --storyboard_frames_per_image 3 \
-  --mode radial --video 24 \
+  --storyboard_num_frames 24 --storyboard_mode video --video_duration 8 --video_resolution 1080p \
+  --mode radial \
   --spatial_start_size 10 --spatial_end_size 40
 ```
 
-_Generates storyboard source frames via AI, then renders mosaic video frames from that sequence. Uses default `--fps 30` unless overridden. With `--storyboard_frames_per_image 3`, about 8 generated storyboard images drive 24 output frames._
+_Generates one coherent Google Veo source video, extracts 24 clean source frames by exact frame index, and renders mosaic video frames from that sequence. Uses default `--fps 30` unless overridden._
 
 ---
 

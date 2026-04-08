@@ -57,3 +57,10 @@ output/*.mp4
 .claude/local/
 .claude/settings.local.json
 .agents/memory/logs/
+
+# agentmemory-managed local repo wiring and state
+# Added by the shared repo-memory SessionStart/bootstrap flow.
+# Do not edit this block manually; rerun ./install.sh and reopen an agent session if needed.
+.githooks/
+.agents/memory/pending/
+.agents/memory/.auto_bootstrap_running

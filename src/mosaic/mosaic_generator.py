@@ -15,6 +15,7 @@ import random
 import secrets
 import sys
 from collections.abc import Generator
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -42,6 +43,9 @@ except ImportError:
     bool_has_video_support = False
 
 
+MINIMUM_SOURCE_VIDEO_FPS: int = 1
+
+
 def get_version() -> str:
     """Retrieve package version from installed metadata."""
     try:
@@ -54,6 +58,45 @@ def get_version() -> str:
         )
         str_unknown_version: str = "unknown"
         return str_unknown_version
+
+
+def derive_storyboard_source_video_fps(
+    int_storyboard_num_frames: int, int_video_duration_seconds: int
+) -> int:
+    """Derive the minimum source-video FPS needed for exact storyboard extraction.
+
+    Purpose:
+    - Request enough source-video cadence to supply at least one clean source
+      frame for every requested final mosaic frame.
+    - Keep `--storyboard_num_frames` as the primary product control while
+      deriving the provider-specific source clip cadence automatically.
+
+    Inputs:
+    - `int_storyboard_num_frames`: Positive integer final mosaic frame count
+      requested by storyboard mode.
+    - `int_video_duration_seconds`: Positive integer requested source-video
+      duration in seconds.
+
+    Output:
+    - Returns one positive integer FPS value suitable for
+      `AIBaseVideoProperties.fps`.
+    - Raises `ValueError` when either input is less than one.
+    """
+    if int_storyboard_num_frames < 1:
+        raise ValueError("storyboard_num_frames must be >= 1.")
+    if int_video_duration_seconds < 1:
+        raise ValueError("video_duration_seconds must be >= 1.")
+
+    int_required_source_video_fps: int = max(
+        MINIMUM_SOURCE_VIDEO_FPS,
+        int(
+            math.ceil(
+                float(int_storyboard_num_frames) / float(int_video_duration_seconds)
+            )
+        ),
+    )
+    # Normal return with the minimum requested source-video FPS for exact frame extraction.
+    return int_required_source_video_fps
 
 
 class Mosaic:
@@ -954,6 +997,44 @@ def main() -> None:
         default=3,
         help="Number of output video frames to hold each generated storyboard image.",
     )
+    obj_parser.add_argument(
+        "--storyboard_mode",
+        type=str,
+        default="video",
+        choices=["image", "video"],
+        help="Storyboard source generation path. Video is the default for multi-frame storyboards.",
+    )
+    obj_parser.add_argument(
+        "--video_model",
+        type=str,
+        default=None,
+        help="Optional Google Veo model override for storyboard video mode.",
+    )
+    obj_parser.add_argument(
+        "--video_duration",
+        type=int,
+        default=8,
+        help="Generated source video duration in seconds for storyboard video mode.",
+    )
+    obj_parser.add_argument(
+        "--video_aspect_ratio",
+        type=str,
+        default="16:9",
+        choices=["16:9", "9:16"],
+        help="Aspect ratio for the generated storyboard source video.",
+    )
+    obj_parser.add_argument(
+        "--video_resolution",
+        type=str,
+        default="1080p",
+        choices=["720p", "1080p", "4k"],
+        help="Resolution for the generated storyboard source video.",
+    )
+    obj_parser.add_argument(
+        "--save_source_video",
+        action="store_true",
+        help="Persist the intermediate AI-generated source video under output/source_videos.",
+    )
 
     # Global settings
     obj_parser.add_argument(
@@ -1057,6 +1138,9 @@ def main() -> None:
     if obj_args.storyboard_frames_per_image < 1:
         logger_app.error("Storyboard frames_per_image must be >= 1.")
         sys.exit(1)
+    if obj_args.video_duration < 1:
+        logger_app.error("video_duration must be >= 1.")
+        sys.exit(1)
     if obj_args.fps < 1:
         logger_app.error("FPS must be >= 1.")
         sys.exit(1)
@@ -1077,6 +1161,10 @@ def main() -> None:
             "input_image is required unless --storyboard_prompt is provided."
         )
         sys.exit(1)
+    if bool_storyboard_mode and obj_args.video is not None:
+        logger_app.warning(
+            "Ignoring --video because storyboard mode uses --storyboard_num_frames for the final mosaic duration."
+        )
 
     # Build seeded RNG when --seed is provided; None falls back to secrets-based randomness.
     obj_cli_rng: random.Random | None = (
@@ -1089,15 +1177,54 @@ def main() -> None:
 
     try:
         if bool_storyboard_mode:
+            from ai_api_unified import AIBaseVideoProperties
+
             from .video_storyboard import VideoStoryboard
 
+            obj_storyboard_video_properties: AIBaseVideoProperties | None = None
             obj_video_storyboard = VideoStoryboard(
                 str_storyboard_prompt=str_storyboard_prompt,
                 int_num_frames=obj_args.storyboard_num_frames,
                 int_frames_per_image=obj_args.storyboard_frames_per_image,
             )
+            if (
+                obj_args.storyboard_mode == "video"
+                and obj_args.storyboard_num_frames > 1
+            ):
+                VideoStoryboard.validate_video_runtime_dependencies()
+                if obj_args.storyboard_frames_per_image != 3:
+                    logger_app.warning(
+                        "Ignoring --storyboard_frames_per_image in storyboard video mode because the video path extracts one source frame per final output frame."
+                    )
+                path_video_output_dir: Path | None = None
+                if obj_args.save_source_video:
+                    path_video_output_dir = Path(str_output_dir) / "source_videos"
+                int_storyboard_source_video_fps: int = (
+                    derive_storyboard_source_video_fps(
+                        obj_args.storyboard_num_frames,
+                        obj_args.video_duration,
+                    )
+                )
+                logger_app.info(
+                    "Storyboard video mode requesting source clip fps=%d duration_seconds=%d for final_frame_count=%d",
+                    int_storyboard_source_video_fps,
+                    obj_args.video_duration,
+                    obj_args.storyboard_num_frames,
+                )
+                obj_storyboard_video_properties = AIBaseVideoProperties(
+                    duration_seconds=obj_args.video_duration,
+                    aspect_ratio=obj_args.video_aspect_ratio,
+                    resolution=obj_args.video_resolution,
+                    fps=int_storyboard_source_video_fps,
+                    output_dir=path_video_output_dir,
+                    download_outputs=True,
+                )
             list_bytes_storyboard_frames: list[bytes] = (
-                obj_video_storyboard.generate_storyboard()
+                obj_video_storyboard.generate_storyboard(
+                    str_storyboard_mode=obj_args.storyboard_mode,
+                    obj_video_properties=obj_storyboard_video_properties,
+                    str_video_model_name=obj_args.video_model,
+                )
             )
             obj_mosaic_inputs: MosaicImageInputs = MosaicImageInputs(
                 list_bytes_frame_image_buffers=list_bytes_storyboard_frames
@@ -1152,9 +1279,13 @@ def main() -> None:
     # Execution mode
     if bool_video_mode:
         int_duration: int = (
-            obj_args.video
-            if obj_args.video is not None
-            else obj_args.storyboard_num_frames
+            obj_args.storyboard_num_frames
+            if bool_storyboard_mode
+            else (
+                obj_args.video
+                if obj_args.video is not None
+                else obj_args.storyboard_num_frames
+            )
         )
 
         int_temp_end_grid: int = (

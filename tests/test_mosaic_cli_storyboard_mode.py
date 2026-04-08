@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import sys
 
+from ai_api_unified import AIBaseVideoProperties
 from PIL import Image
 import pytest
 
@@ -28,6 +29,9 @@ class StubVideoStoryboard:
     """Storyboard stub that avoids external AI calls in CLI tests."""
 
     int_last_frames_per_image: int | None = None
+    str_last_storyboard_mode: str | None = None
+    obj_last_video_properties: AIBaseVideoProperties | None = None
+    bool_validated_video_runtime = False
 
     def __init__(
         self,
@@ -40,9 +44,22 @@ class StubVideoStoryboard:
         self.int_frames_per_image = int_frames_per_image
         StubVideoStoryboard.int_last_frames_per_image = int_frames_per_image
 
-    def generate_storyboard(self) -> list[bytes]:
+    @staticmethod
+    def validate_video_runtime_dependencies() -> None:
+        """Record that video runtime validation was requested."""
+        StubVideoStoryboard.bool_validated_video_runtime = True
+
+    def generate_storyboard(
+        self,
+        str_storyboard_mode: str = "video",
+        obj_video_properties: AIBaseVideoProperties | None = None,
+        str_video_model_name: str | None = None,
+    ) -> list[bytes]:
         """Return deterministic storyboard image buffers for constructor input."""
+        StubVideoStoryboard.str_last_storyboard_mode = str_storyboard_mode
+        StubVideoStoryboard.obj_last_video_properties = obj_video_properties
         list_bytes_frames: list[bytes] = []
+        # Build deterministic image buffers for each requested final storyboard frame.
         for int_index in range(self.int_num_frames):
             int_channel = (int_index * 47) % 255
             bytes_frame = build_png_bytes((12, 12), (int_channel, 20, 200))
@@ -97,9 +114,11 @@ def test_main_storyboard_prompt_mode_routes_to_generate_video(
             "--storyboard_prompt",
             "A subject turns left then right.",
             "--storyboard_num_frames",
-            "4",
+            "25",
             "--storyboard_frames_per_image",
             "2",
+            "--video_duration",
+            "8",
             "--grid_size",
             "16",
             "--fps",
@@ -110,8 +129,13 @@ def test_main_storyboard_prompt_mode_routes_to_generate_video(
     mosaic_generator.main()
 
     assert obj_recorder.bool_called is True
-    assert obj_recorder.int_duration == 4
+    assert obj_recorder.int_duration == 25
     assert obj_recorder.int_fps == 12
     assert obj_recorder.obj_start_settings is not None
     assert obj_recorder.obj_end_settings is not None
     assert StubVideoStoryboard.int_last_frames_per_image == 2
+    assert StubVideoStoryboard.str_last_storyboard_mode == "video"
+    assert StubVideoStoryboard.bool_validated_video_runtime is True
+    assert StubVideoStoryboard.obj_last_video_properties is not None
+    assert StubVideoStoryboard.obj_last_video_properties.fps == 4
+    assert StubVideoStoryboard.obj_last_video_properties.resolution == "1080p"
