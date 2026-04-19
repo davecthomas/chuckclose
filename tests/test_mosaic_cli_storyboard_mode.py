@@ -139,3 +139,5 @@ def test_main_storyboard_prompt_mode_routes_to_generate_video(
     assert StubVideoStoryboard.obj_last_video_properties is not None
     assert StubVideoStoryboard.obj_last_video_properties.fps is None
     assert StubVideoStoryboard.obj_last_video_properties.resolution == "1080p"
+    assert StubVideoStoryboard.obj_last_video_properties.duration_seconds == 8
+    assert StubVideoStoryboard.obj_last_video_properties.aspect_ratio == "16:9"
