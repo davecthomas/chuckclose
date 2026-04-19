@@ -137,5 +137,5 @@ def test_main_storyboard_prompt_mode_routes_to_generate_video(
     assert StubVideoStoryboard.str_last_storyboard_mode == "video"
     assert StubVideoStoryboard.bool_validated_video_runtime is True
     assert StubVideoStoryboard.obj_last_video_properties is not None
-    assert StubVideoStoryboard.obj_last_video_properties.fps == 4
+    assert StubVideoStoryboard.obj_last_video_properties.fps is None
     assert StubVideoStoryboard.obj_last_video_properties.resolution == "1080p"

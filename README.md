@@ -101,7 +101,7 @@ poetry run mosaic --storyboard_prompt "A portrait turns slightly and smiles." \
 - **`--video_model`**: (Optional) Override the default Google Veo model for storyboard video mode.
 - **`--video_duration`**: (Optional) Source-video generation duration in seconds for storyboard video mode. Default: 8.
 - **`--video_aspect_ratio`**: (Optional) Source-video aspect ratio. Choices: `16:9`, `9:16`. Default: `16:9`.
-- **`--video_resolution`**: (Optional) Source-video resolution. Choices: `720p`, `1080p`, `4k`. Default: `1080p`.
+- **`--video_resolution`**: (Optional) Source-video resolution. Choices: `720p`, `1080p`. Default: `1080p`. (Veo does not support 4k.)
 - **`--save_source_video`**: (Optional) Persist the intermediate source video under `output/source_videos`.
 - **`--mode`**: (Optional) Rendering mode. Choices: `standard`, `gradient`, `supersample`, `centervert`, `centerhoriz`, `radial`. Default is `standard`.
 - **`--grid_size`**: (Optional) Integer. Uniform grid size used in `standard` mode. Default: 30.
