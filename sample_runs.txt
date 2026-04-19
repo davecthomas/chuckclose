@@ -1,42 +1,76 @@
-# Mosaic Storyboard Mode - Sample Runs
-# Run from the repo root
+# Sample Runs — Mosaic Tool
+# Run all commands from the repo root.
+#
+# This tool creates mosaics (Chuck Close-style grid art) from images.
+# There are three main pipelines:
+#
+#   A. PROMPT -> AI IMAGES -> MOSAIC VIDEO ("storyboard image mode")
+#      An AI prompt is decomposed into frame descriptions, one image is
+#      generated per description, each image is mosaicked, and the frames
+#      are stitched into an MP4.
+#
+#   B. PROMPT -> AI VIDEO -> EXTRACT FRAMES -> MOSAIC VIDEO ("storyboard video mode")
+#      An AI prompt generates a single source video (Google Veo), frames
+#      are extracted, each frame is mosaicked, and the result is an MP4.
+#
+#   C. LOCAL IMAGE FILE -> MOSAIC STILL or VIDEO
+#      A local image is mosaicked into a single PNG, or (with --video N)
+#      into an MP4 with temporal interpolation across N frames.
+#
+# Mosaic modes control how cell size varies across the image:
+#   standard  — uniform grid size everywhere
+#   gradient  — cell size varies left-to-right
+#   radial    — cell size varies from center outward
+#   centerhoriz / centervert — center-convergence variants
 
-# 1. Minimal — all defaults (standard mode, 24 frames, 3 frames/image)
+
+# ============================================================================
+# SECTION A: Prompt -> AI-generated images -> mosaic video
+#            (storyboard image mode, the default when --storyboard_prompt is set)
+# ============================================================================
+
+# A1. Minimal defaults — AI generates ~8 images from the prompt,
+#     each held for 3 video frames, producing a 24-frame mosaic video.
 poetry run mosaic --storyboard_prompt "A sunset over the ocean"
 
-# 2. Custom frame count and hold duration
+# A2. More images, longer hold — 36 frames with each AI image held for
+#     6 frames (= 6 unique images). Slower, smoother transitions.
 poetry run mosaic --storyboard_prompt "A dog running through a field" \
   --storyboard_num_frames 36 \
   --storyboard_frames_per_image 6
 
-# 3. Faster video at 60fps
+# A3. 48-frame video rendered at 60fps for smoother playback.
 poetry run mosaic --storyboard_prompt "A city skyline at night" \
   --storyboard_num_frames 48 \
   --fps 60
 
-# 4. Large grid (chunky mosaic) with blur softening
+# A4. Chunky mosaic (large 60px cells) with edge blur softening.
 poetry run mosaic --storyboard_prompt "A forest in autumn" \
   --grid_size 60 \
   --blur_factor 0.3
 
-# 5. Fine grid (detailed mosaic)
+# A5. Fine-detail mosaic (small 12px cells) — more photo-realistic result.
 poetry run mosaic --storyboard_prompt "A portrait of a woman smiling" \
   --grid_size 12 \
   --storyboard_num_frames 30
 
-# 6. Gradient mode with spatial interpolation (small to large cells)
+# A6. Gradient mode — cell size transitions from 8px (left) to 48px (right)
+#     across each frame, creating a spatial detail gradient.
 poetry run mosaic --storyboard_prompt "Waves crashing on a beach" \
   --mode gradient \
   --spatial_start_size 8 \
   --spatial_end_size 48
 
-# 7. Radial mode — cells radiate outward from center
+# A7. Radial mode — small cells at center, large cells at edges,
+#     drawing the eye to the middle of each frame.
 poetry run mosaic --storyboard_prompt "A flower blooming in timelapse" \
   --mode radial \
   --spatial_start_size 6 \
   --spatial_end_size 40
 
-# 8. Temporal interpolation — grid evolves over the video duration
+# A8. Temporal interpolation — the mosaic grid itself evolves over the
+#     video: starts at 10-20px gradient, ends at 30-60px gradient,
+#     so early frames are fine-grained and late frames are chunky.
 poetry run mosaic --storyboard_prompt "A mountain landscape changing seasons" \
   --mode gradient \
   --spatial_start_size 10 \
@@ -45,13 +79,15 @@ poetry run mosaic --storyboard_prompt "A mountain landscape changing seasons" \
   --spatial_end_size_temporal_end 60 \
   --storyboard_num_frames 48
 
-# 9. Deterministic output with a fixed seed (same prompt = same result every time)
+# A9. Deterministic output — fixed seed means identical prompt + params
+#     will always produce the same mosaic tile selection.
 poetry run mosaic --storyboard_prompt "Abstract geometric shapes morphing" \
   --grid_size 24 \
   --storyboard_num_frames 30 \
   --seed 42
 
-# 10. Full production-style run — radial mode, slow hold, 24fps, deterministic
+# A10. Full production run — radial mode, slow hold, 24fps cinema rate,
+#      deterministic seed, subtle blur.
 poetry run mosaic --storyboard_prompt "A volcano erupting at night, dramatic cinematic lighting" \
   --mode radial \
   --spatial_start_size 4 \
@@ -62,5 +98,59 @@ poetry run mosaic --storyboard_prompt "A volcano erupting at night, dramatic cin
   --blur_factor 0.2 \
   --seed 99
 
-# 11. Run the non-mocked real MP4 integration tests
+
+# ============================================================================
+# SECTION B: Prompt -> AI-generated video -> extract frames -> mosaic video
+#            (storyboard video mode — uses Google Veo to generate source video)
+# ============================================================================
+
+# B1. Basic video-mode storyboard — generates an 8s source video via Veo,
+#     extracts 24 evenly-spaced frames, mosaics each, outputs MP4.
+poetry run mosaic --storyboard_prompt "A cat leaping across rooftops" \
+  --storyboard_mode video
+
+# B2. Longer source video, more frames, vertical aspect for mobile.
+poetry run mosaic --storyboard_prompt "A raindrop falling in slow motion" \
+  --storyboard_mode video \
+  --storyboard_num_frames 48 \
+  --video_duration 12 \
+  --video_aspect_ratio 9:16
+
+# B3. High-res 1080p source with radial mosaic and saved intermediate video.
+poetry run mosaic --storyboard_prompt "Northern lights dancing over a frozen lake" \
+  --storyboard_mode video \
+  --video_resolution 1080p \
+  --mode radial \
+  --spatial_start_size 6 \
+  --spatial_end_size 40 \
+  --save_source_video
+
+
+# ============================================================================
+# SECTION C: Local image file -> mosaic still or video
+#            (no AI generation — mosaics an existing image on disk)
+# ============================================================================
+
+# C1. Single image -> mosaic PNG (standard uniform grid).
+poetry run mosaic path/to/photo.jpg
+
+# C2. Single image -> mosaic PNG with radial mode.
+poetry run mosaic path/to/photo.jpg \
+  --mode radial \
+  --spatial_start_size 5 \
+  --spatial_end_size 50
+
+# C3. Single image -> mosaic MP4 video (60 frames) with temporal
+#     interpolation: grid evolves from 30px to 10px over the video.
+poetry run mosaic path/to/photo.jpg \
+  --video 60 \
+  --grid_size 30 \
+  --grid_size_temporal_end 10
+
+
+# ============================================================================
+# TESTS
+# ============================================================================
+
+# Run the non-mocked real MP4 integration tests.
 poetry run pytest --run-real-video tests/test_video_generation_integration.py

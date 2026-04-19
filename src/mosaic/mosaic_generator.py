@@ -43,9 +43,6 @@ except ImportError:
     bool_has_video_support = False
 
 
-MINIMUM_SOURCE_VIDEO_FPS: int = 1
-
-
 def get_version() -> str:
     """Retrieve package version from installed metadata."""
     try:
@@ -58,45 +55,6 @@ def get_version() -> str:
         )
         str_unknown_version: str = "unknown"
         return str_unknown_version
-
-
-def derive_storyboard_source_video_fps(
-    int_storyboard_num_frames: int, int_video_duration_seconds: int
-) -> int:
-    """Derive the minimum source-video FPS needed for exact storyboard extraction.
-
-    Purpose:
-    - Request enough source-video cadence to supply at least one clean source
-      frame for every requested final mosaic frame.
-    - Keep `--storyboard_num_frames` as the primary product control while
-      deriving the provider-specific source clip cadence automatically.
-
-    Inputs:
-    - `int_storyboard_num_frames`: Positive integer final mosaic frame count
-      requested by storyboard mode.
-    - `int_video_duration_seconds`: Positive integer requested source-video
-      duration in seconds.
-
-    Output:
-    - Returns one positive integer FPS value suitable for
-      `AIBaseVideoProperties.fps`.
-    - Raises `ValueError` when either input is less than one.
-    """
-    if int_storyboard_num_frames < 1:
-        raise ValueError("storyboard_num_frames must be >= 1.")
-    if int_video_duration_seconds < 1:
-        raise ValueError("video_duration_seconds must be >= 1.")
-
-    int_required_source_video_fps: int = max(
-        MINIMUM_SOURCE_VIDEO_FPS,
-        int(
-            math.ceil(
-                float(int_storyboard_num_frames) / float(int_video_duration_seconds)
-            )
-        ),
-    )
-    # Normal return with the minimum requested source-video FPS for exact frame extraction.
-    return int_required_source_video_fps
 
 
 class Mosaic:
@@ -1027,8 +985,8 @@ def main() -> None:
         "--video_resolution",
         type=str,
         default="1080p",
-        choices=["720p", "1080p", "4k"],
-        help="Resolution for the generated storyboard source video.",
+        choices=["720p", "1080p"],
+        help="Resolution for the generated storyboard source video. Veo supports 720p or 1080p.",
     )
     obj_parser.add_argument(
         "--save_source_video",
@@ -1199,15 +1157,8 @@ def main() -> None:
                 path_video_output_dir: Path | None = None
                 if obj_args.save_source_video:
                     path_video_output_dir = Path(str_output_dir) / "source_videos"
-                int_storyboard_source_video_fps: int = (
-                    derive_storyboard_source_video_fps(
-                        obj_args.storyboard_num_frames,
-                        obj_args.video_duration,
-                    )
-                )
                 logger_app.info(
-                    "Storyboard video mode requesting source clip fps=%d duration_seconds=%d for final_frame_count=%d",
-                    int_storyboard_source_video_fps,
+                    "Storyboard video mode requesting duration_seconds=%d for final_frame_count=%d",
                     obj_args.video_duration,
                     obj_args.storyboard_num_frames,
                 )
@@ -1215,7 +1166,6 @@ def main() -> None:
                     duration_seconds=obj_args.video_duration,
                     aspect_ratio=obj_args.video_aspect_ratio,
                     resolution=obj_args.video_resolution,
-                    fps=int_storyboard_source_video_fps,
                     output_dir=path_video_output_dir,
                     download_outputs=True,
                 )
