@@ -766,7 +766,7 @@ def main() -> None:
     obj_parser.add_argument(
         "--num_frames",
         type=int,
-        default=8,
+        default=192,
         help="Total number of final output video frames to render.",
     )
     obj_parser.add_argument(
