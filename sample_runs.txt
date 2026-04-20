@@ -125,6 +125,19 @@ poetry run mosaic --storyboard_prompt "Northern lights dancing over a frozen lak
   --spatial_end_size 40 \
   --save_source_video
 
+# B4. Eye close-up with cell size shrinking over time — starts as very chunky
+#     120px blocks (barely recognizable) and resolves to 2px (near-original
+#     detail) by the final frame. Relies on new defaults (192 frames @ 24fps)
+#     so the full 8s Veo source plays back 1:1 with no dropped frames.
+poetry run mosaic \
+  --storyboard_prompt "close-up of a white woman's eye. She has green eyes and brown eyebrows. She looks sideways, blinks, then looks directly at the camera. Photorealistic and wide-frame format." \
+  --storyboard_mode video \
+  --save_source_video \
+  --mode standard \
+  --grid_size 120 \
+  --grid_size_temporal_end 2 \
+  --blur_factor 0.0
+
 
 # ============================================================================
 # SECTION C: Local image file -> mosaic still or video
