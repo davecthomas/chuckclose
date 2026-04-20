@@ -946,7 +946,7 @@ def main() -> None:
     obj_parser.add_argument(
         "--storyboard_num_frames",
         type=int,
-        default=24,
+        default=192,
         help="Total number of output video frames in storyboard mode.",
     )
     obj_parser.add_argument(
@@ -1060,7 +1060,7 @@ def main() -> None:
     obj_parser.add_argument(
         "--fps",
         type=int,
-        default=30,
+        default=24,
         help="Frames per second for generated video output.",
     )
     obj_parser.add_argument(

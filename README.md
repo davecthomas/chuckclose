@@ -95,7 +95,7 @@ poetry run mosaic --storyboard_prompt "A portrait turns slightly and smiles." \
 
 - **`input_image`**: (Optional in storyboard mode) Path to source image (jpg, png, etc). Required unless `--storyboard_prompt` is provided.
 - **`--storyboard_prompt`**: (Optional) Storyboard prompt used to generate source material before mosaic rendering.
-- **`--storyboard_num_frames`**: (Optional) Total final mosaic video frame count in storyboard mode. Default: 24.
+- **`--storyboard_num_frames`**: (Optional) Total final mosaic video frame count in storyboard mode. Default: 192 (matches an 8s Veo source at 24fps 1:1).
 - **`--storyboard_mode`**: (Optional) `video` or `image`. Default: `video`.
 - **`--storyboard_frames_per_image`**: (Optional) Image-mode-only control for how many output frames reuse one generated image. Default: 3.
 - **`--video_model`**: (Optional) Override the default Google Veo model for storyboard video mode.
@@ -106,7 +106,7 @@ poetry run mosaic --storyboard_prompt "A portrait turns slightly and smiles." \
 - **`--mode`**: (Optional) Rendering mode. Choices: `standard`, `gradient`, `supersample`, `centervert`, `centerhoriz`, `radial`. Default is `standard`.
 - **`--grid_size`**: (Optional) Integer. Uniform grid size used in `standard` mode. Default: 30.
 - **`--blur_factor`**: (Optional) Float. Controls softness of dots (0.0 = sharp, 0.4 = fuzzy).
-- **`--fps`**: (Optional) Output video frames per second. Default: 30. This was added as part of the storyboard+video CLI updates, so existing commands can omit it.
+- **`--fps`**: (Optional) Output video frames per second. Default: 24 (matches Veo's native source cadence so extracted frames play 1:1).
 
 #### Spatial Interpolation Arguments (For Gradient/Radial modes)
 
@@ -284,7 +284,7 @@ poetry run mosaic --storyboard_prompt "An extreme closeup of a fair-skinned woma
   --spatial_start_size 10 --spatial_end_size 40
 ```
 
-_Generates one coherent Google Veo source video, extracts 24 clean source frames by exact frame index, and renders mosaic video frames from that sequence. Uses default `--fps 30` unless overridden._
+_Generates one coherent Google Veo source video, extracts 24 clean source frames by exact frame index, and renders mosaic video frames from that sequence. With the default 192 frames at 24fps, the mosaic plays back 1:1 against an 8s Veo source._
 
 ---
 
